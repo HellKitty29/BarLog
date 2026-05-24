@@ -1,0 +1,155 @@
+{
+  "users": [
+    {
+      "id": "user_001",
+      "displayName": "Mina Chen",
+      "email": "demo@barlog.app",
+      "password": "password123",
+      "avatarUrl": "https://images.barlog.local/avatars/mina.png",
+      "city": "Shanghai",
+      "persona": "Late-night citrus explorer"
+    }
+  ],
+  "bars": [
+    {
+      "id": "bar_001",
+      "name": "Amber Room",
+      "city": "Shanghai",
+      "area": "Jing'an",
+      "address": "88 Yanping Road",
+      "rating": 4.7,
+      "distanceMeters": 420,
+      "lat": 31.2298,
+      "lng": 121.4442,
+      "tags": ["cocktail", "speakeasy"],
+      "description": "Low-lit cocktail bar with a strong whisky shelf."
+    },
+    {
+      "id": "bar_002",
+      "name": "Neon Fig",
+      "city": "Shanghai",
+      "area": "Xuhui",
+      "address": "16 Fuxing West Road",
+      "rating": 4.5,
+      "distanceMeters": 980,
+      "lat": 31.2103,
+      "lng": 121.4401,
+      "tags": ["wine", "small plates"],
+      "description": "Quiet wine counter for two-person conversations."
+    },
+    {
+      "id": "bar_003",
+      "name": "Last Call Lab",
+      "city": "Shanghai",
+      "area": "Huangpu",
+      "address": "212 Beijing East Road",
+      "rating": 4.8,
+      "distanceMeters": 1380,
+      "lat": 31.2357,
+      "lng": 121.4829,
+      "tags": ["cocktail", "experimental"],
+      "description": "Menu-free bar that builds drinks from mood and texture."
+    }
+  ],
+  "checkins": [
+    {
+      "id": "checkin_001",
+      "userId": "user_001",
+      "photoUrl": "https://images.barlog.local/checkins/negroni.jpg",
+      "cardImageUrl": "https://images.barlog.local/cards/negroni-card.jpg",
+      "drinkName": "Smoked Negroni",
+      "drinkCategory": "cocktail",
+      "barId": "bar_001",
+      "barName": "Amber Room",
+      "city": "Shanghai",
+      "area": "Jing'an",
+      "moodTags": ["warm", "bitter"],
+      "rating": 4.5,
+      "vibeMumbling": "Orange peel, low lights, no rush.",
+      "cardStyle": "receipt",
+      "visibility": "public",
+      "socialStatus": "open_to_chat",
+      "createdAt": "2026-05-22T14:20:00.000Z"
+    },
+    {
+      "id": "checkin_002",
+      "userId": "user_001",
+      "photoUrl": "https://images.barlog.local/checkins/martini.jpg",
+      "drinkName": "Dry Martini",
+      "drinkCategory": "cocktail",
+      "barId": "bar_003",
+      "barName": "Last Call Lab",
+      "city": "Shanghai",
+      "area": "Huangpu",
+      "moodTags": ["cool", "clean"],
+      "rating": 5,
+      "cardStyle": "film_ticket",
+      "visibility": "private",
+      "socialStatus": "not_social",
+      "createdAt": "2026-05-18T13:10:00.000Z"
+    }
+  ],
+  "galleryPosts": [
+    {
+      "id": "post_001",
+      "userId": "user_001",
+      "authorName": "Mina Chen",
+      "imageUrl": "https://images.barlog.local/gallery/post-001.jpg",
+      "caption": "A clean martini night.",
+      "city": "Shanghai",
+      "barName": "Last Call Lab",
+      "likedCount": 18,
+      "createdAt": "2026-05-22T15:00:00.000Z"
+    }
+  ],
+  "matchCandidates": [
+    {
+      "id": "user_101",
+      "displayName": "Alex Wu",
+      "avatarUrl": "https://images.barlog.local/avatars/alex.png",
+      "reason": "Also likes bitter cocktails and quiet counters.",
+      "distanceMeters": 700
+    },
+    {
+      "id": "user_102",
+      "displayName": "Rin Zhao",
+      "avatarUrl": "https://images.barlog.local/avatars/rin.png",
+      "reason": "Looking for low-pressure wine bar plans tonight.",
+      "distanceMeters": 1250
+    }
+  ],
+  "conversations": [
+    {
+      "id": "conv_001",
+      "title": "Alex Wu",
+      "lastMessage": "Amber Room sounds good for one round.",
+      "unreadCount": 1,
+      "updatedAt": "2026-05-23T12:12:00.000Z"
+    }
+  ],
+  "messages": [
+    {
+      "id": "msg_001",
+      "conversationId": "conv_001",
+      "senderId": "user_101",
+      "body": "Amber Room sounds good for one round.",
+      "createdAt": "2026-05-23T12:12:00.000Z"
+    }
+  ],
+  "drinkCollection": [
+    {
+      "id": "drink_001",
+      "name": "Smoked Negroni",
+      "category": "cocktail",
+      "collectedAt": "2026-05-22T14:20:00.000Z",
+      "imageUrl": "https://images.barlog.local/drinks/negroni.jpg"
+    },
+    {
+      "id": "drink_002",
+      "name": "Dry Martini",
+      "category": "cocktail",
+      "collectedAt": "2026-05-18T13:10:00.000Z",
+      "imageUrl": "https://images.barlog.local/drinks/martini.jpg"
+    }
+  ]
+}
