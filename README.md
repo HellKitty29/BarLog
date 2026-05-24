@@ -1,5 +1,7 @@
 # BarLog Mobile
 
+All alcoholists welcome to your Hole! Just Dig your private obssesion here, meet someone with your burning ethanol heart.
+
 Expo Router + React Native + TypeScript scaffold for BarLog.
 
 This project is backend-first. Screens call feature APIs through `src/services/api/client.ts`; set the backend URL in `.env`:
