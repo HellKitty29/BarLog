@@ -1,11 +1,14 @@
 import { apiClient } from "@/services/api/client";
 import { endpoints } from "@/services/api/endpoints";
 import type { Bar } from "@/types/domain";
-import type { BarCheckinsResponse, BarDetail, BarRankingsParams, NearbyBarsParams } from "./bars.types";
+import { normalizeNearbyBarsResponse } from "./bars.helpers";
+import type { BarCheckinsResponse, BarDetail, BarRankingsParams, NearbyBarsParams, NearbyBarsResponse } from "./bars.types";
 
 export const barsApi = {
-  getNearby: (params: NearbyBarsParams) =>
-    apiClient.get<Bar[]>(endpoints.bars.nearby, { params }),
+  getNearby: async (params: NearbyBarsParams) => {
+    const response = await apiClient.get<Bar[] | NearbyBarsResponse | Record<string, unknown>>(endpoints.bars.nearby, { params });
+    return normalizeNearbyBarsResponse(response);
+  },
   getDetail: (barId: string) =>
     apiClient.get<BarDetail>(endpoints.bars.detail(barId)),
   getRankings: (params: BarRankingsParams) =>

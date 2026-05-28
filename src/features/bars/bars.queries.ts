@@ -3,10 +3,13 @@ import { queryKeys } from "@/constants/queryKeys";
 import { barsApi } from "./bars.api";
 import type { NearbyBarsParams } from "./bars.types";
 
-export function useNearbyBarsQuery(params: NearbyBarsParams) {
+export function useNearbyBarsQuery(params: NearbyBarsParams | null, options?: { enabled?: boolean }) {
   return useQuery({
-    queryKey: queryKeys.nearbyBars(params.city),
-    queryFn: () => barsApi.getNearby(params)
+    queryKey: queryKeys.nearbyBars(params),
+    queryFn: () => barsApi.getNearby(params!),
+    enabled: options?.enabled ?? Boolean(params),
+    refetchOnMount: "always",
+    staleTime: 0
   });
 }
 

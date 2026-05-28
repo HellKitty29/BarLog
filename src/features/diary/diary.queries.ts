@@ -9,6 +9,13 @@ export function useDiarySummaryQuery(month: string) {
   });
 }
 
+export function useDiaryCalendarQuery(month: string) {
+  return useQuery({
+    queryKey: queryKeys.diaryCalendar(month),
+    queryFn: () => diaryApi.getCalendar(month)
+  });
+}
+
 export function useRecentSipsQuery() {
   return useQuery({
     queryKey: queryKeys.recentSips,

@@ -1,7 +1,7 @@
 import { LinearGradient } from "expo-linear-gradient";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Animated, Easing, StyleSheet, Text, View } from "react-native";
-import Svg, { Circle, ClipPath, Defs, G, Line, Path, Polygon, Rect } from "react-native-svg";
+import Svg, { Circle, ClipPath, Defs, G, Line, LinearGradient as SvgLinearGradient, Path, Polygon, Stop } from "react-native-svg";
 
 type SplashCocktailScreenProps = {
   onFinish: () => void | Promise<void>;
@@ -38,6 +38,8 @@ export function SplashCocktailScreen({ onFinish }: SplashCocktailScreenProps) {
   const backWaveY = 73.5 - fillRatio * 38;
   const frontWavePath = createWavePath(frontWaveY, 3.2, wavePhase);
   const backWavePath = createWavePath(backWaveY, 2.4, (wavePhase + 0.35) % 1);
+  const lemonRock = Math.sin(wavePhase * Math.PI * 2) * 1.8;
+  const lemonLift = Math.cos(wavePhase * Math.PI * 2) * 0.45;
 
   const auraScale = useMemo(
     () =>
@@ -154,7 +156,7 @@ export function SplashCocktailScreen({ onFinish }: SplashCocktailScreenProps) {
       <View style={styles.bottomEmber} />
 
       <View style={styles.brandBlock}>
-        <Text style={styles.brand}>SHANGHAI RETRO BARLOG</Text>
+        <Text style={styles.brand}>RECORD YOUR BARLOG</Text>
         <View style={styles.brandRule} />
       </View>
 
@@ -166,21 +168,22 @@ export function SplashCocktailScreen({ onFinish }: SplashCocktailScreenProps) {
             <ClipPath id="liquidCupCavity">
               <Polygon points="21.5,36.2 50,73.5 78.5,36.2" />
             </ClipPath>
+            <SvgLinearGradient id="goldenPeelGradient" x1="-22" y1="-22" x2="22" y2="4" gradientUnits="userSpaceOnUse">
+              <Stop offset="0" stopColor="#FFE36B" />
+              <Stop offset="0.48" stopColor="#F9C207" />
+              <Stop offset="1" stopColor="#D99B00" />
+            </SvgLinearGradient>
           </Defs>
 
-          <G transform="translate(19 34) scale(0.85)">
-            <Path d="M -12,-4 A 12,12 0 1,1 4,-12 L -2,-2 Z" fill="#1a0d0b" stroke={cream} strokeWidth={2.5} />
-            <Path
-              d="M -9,-3 A 9,9 0 1,1 3,-9 L -1,-1 Z"
-              fill="none"
-              stroke={cream}
-              strokeWidth={1.2}
-              strokeDasharray="2 2"
-            />
-            <Line x1={-2} y1={-2} x2={-8} y2={-8} stroke={cream} strokeWidth={1.5} />
-            <Line x1={-2} y1={-2} x2={-1} y2={-11} stroke={cream} strokeWidth={1.5} />
-            <Line x1={-2} y1={-2} x2={-11} y2={-4} stroke={cream} strokeWidth={1.5} />
-            <Line x1={-2} y1={-2} x2={-7} y2={4} stroke={cream} strokeWidth={1.5} />
+          <G transform={`translate(19 ${34 + lemonLift}) rotate(${-30 + lemonRock}) scale(0.55)`}>
+            <Path d="M -22,0 A 22,22 0 0,1 22,0 Z" fill="url(#goldenPeelGradient)" />
+            <Path d="M -19.5,0 A 19.5,19.5 0 0,1 19.5,0 Z" fill="#FAF6EE" />
+            <Path d="M -17.5,0 A 17.5,17.5 0 0,1 17.5,0 Z" fill="#FFE169" />
+            <Line x1={0} y1={0} x2={-14.16} y2={-10.29} stroke="#FAF6EE" strokeWidth={1.2} />
+            <Line x1={0} y1={0} x2={-5.41} y2={-16.64} stroke="#FAF6EE" strokeWidth={1.2} />
+            <Line x1={0} y1={0} x2={5.41} y2={-16.64} stroke="#FAF6EE" strokeWidth={1.2} />
+            <Line x1={0} y1={0} x2={14.16} y2={-10.29} stroke="#FAF6EE" strokeWidth={1.2} />
+            <Circle cx={0} cy={0} r={2.5} fill="#FAF6EE" />
           </G>
 
           <G clipPath="url(#liquidCupCavity)">

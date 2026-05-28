@@ -11,7 +11,7 @@ export default function CardPreviewScreen() {
     <ScrollScreen>
       <AppHeader title="Card preview" subtitle="Connect this step to /api/ai/generate-card-copy." />
       <AppCard>
-        <Text style={styles.title}>Tonight's Sip</Text>
+        <Text style={styles.title}>{"Tonight's Sip"}</Text>
         <Text style={styles.body}>Generated card rendering placeholder.</Text>
       </AppCard>
       <AppButton label="Edit details" onPress={() => router.push("/sip/card-edit")} />

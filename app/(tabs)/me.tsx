@@ -6,20 +6,23 @@ import { AppCard } from "@/components/common/AppCard";
 import { ScrollScreen } from "@/components/layout/ScrollScreen";
 import { clearLocalSessionUser, saveLocalSessionUser } from "@/features/auth/local-session";
 import { useAuthStore } from "@/features/auth/auth.store";
+import type { DrunkTiResult } from "@/features/persona/drunkti";
+import { useDrunkTiStore } from "@/features/persona/drunkti.store";
 import { clearTokens } from "@/services/storage/token-storage";
 
 export default function MeScreen() {
   const user = useAuthStore((state) => state.user);
   const setUser = useAuthStore((state) => state.setUser);
+  const drunkTiResult = useDrunkTiStore((state) => state.result);
 
   const displayName = user?.displayName || "Crimson Guest";
   const email = user?.email || "guest@barlog.local";
 
   const logout = () => {
-    Alert.alert("安全关闭账户", "确认退出当前 BarLog 会话？你的本地日志会被保留。", [
-      { text: "取消", style: "cancel" },
+    Alert.alert("Log out", "Close the current BarLog session? Your local diary data will stay on this device.", [
+      { text: "Cancel", style: "cancel" },
       {
-        text: "登出",
+        text: "Log out",
         style: "destructive",
         onPress: () => {
           void Promise.all([clearLocalSessionUser(), clearTokens()]).finally(() => {
@@ -32,10 +35,10 @@ export default function MeScreen() {
   };
 
   const resetProfile = () => {
-    Alert.alert("档案重置", "将当前本地身份恢复为 Crimson Guest。", [
-      { text: "取消", style: "cancel" },
+    Alert.alert("Reset profile", "Restore the local profile identity to Crimson Guest.", [
+      { text: "Cancel", style: "cancel" },
       {
-        text: "重置",
+        text: "Reset",
         style: "destructive",
         onPress: () => {
           const resetUser = {
@@ -55,44 +58,101 @@ export default function MeScreen() {
   return (
     <ScrollScreen>
       <LinearGradient colors={["#2d0907", "#1b1110"]} style={styles.hero}>
+        <View style={styles.heroGlow} />
         <View style={styles.avatar}>
           <MaterialCommunityIcons name="glass-cocktail" size={34} color="#faf6ee" />
         </View>
         <View style={styles.identity}>
-          <Text numberOfLines={1} style={styles.name}>
-            {displayName}
-          </Text>
+          <View style={styles.nameRow}>
+            <Text numberOfLines={1} style={styles.name}>
+              {displayName}
+            </Text>
+            <Text style={styles.proBadge}>PRO</Text>
+          </View>
           <Text numberOfLines={1} style={styles.email}>
             {email}
           </Text>
-          <Text style={styles.badge}>SHANGHAI PRIVATE CELLAR</Text>
+          <Text numberOfLines={1} style={styles.cellar}>
+            SHANGHAI PRIVATE CELLAR
+          </Text>
         </View>
       </LinearGradient>
 
       <AppCard>
-        <Text style={styles.sectionTitle}>微醺人格</Text>
-        <Text style={styles.body}>
-          {user?.persona || "登录后会根据你的记录生成专属品酒人格。"}
-        </Text>
+        <View style={styles.sectionHeader}>
+          <Ionicons name="sparkles" size={16} color="#c68334" />
+          <Text style={styles.sectionTitle}>Drinking Persona</Text>
+        </View>
+        <Text style={styles.body}>{user?.persona || "Your BarLog personality will grow with your saved nights."}</Text>
       </AppCard>
 
       <AppCard>
-        <Text style={styles.sectionTitle}>高级设置管理</Text>
+        {drunkTiResult ? <DrunkTiResultCard result={drunkTiResult} /> : (
+          <View style={styles.mbtiCard}>
+            <View style={styles.mbtiIcon}>
+              <Ionicons name="planet-outline" size={24} color="#9fbf8f" />
+            </View>
+            <View style={styles.mbtiCopy}>
+              <Text style={styles.sectionTitle}>Alcohol MBTI</Text>
+              <Text style={styles.body}>Finish DrunkTI from Diary to generate your night-time drinking archetype.</Text>
+            </View>
+          </View>
+        )}
+      </AppCard>
+
+      <AppCard>
+        <View style={styles.sectionHeader}>
+          <Ionicons name="shield-checkmark-outline" size={16} color="#fca5a5" />
+          <Text style={styles.sectionTitle}>Account Controls</Text>
+        </View>
         <Text style={styles.body}>
-          管理本地身份、档案重置和安全登出。账户关闭后会返回黑红登录殿堂。
+          Manage local identity, profile reset, and secure logout. Closing the account returns to the crimson login portal.
         </Text>
         <View style={styles.actionRow}>
           <Pressable onPress={resetProfile} style={({ pressed }) => [styles.outlineButton, pressed && styles.pressed]}>
             <Ionicons name="refresh-outline" size={16} color="#fca5a5" />
-            <Text style={styles.outlineText}>档案重置</Text>
+            <Text style={styles.outlineText}>Reset</Text>
           </Pressable>
           <Pressable onPress={logout} style={({ pressed }) => [styles.dangerButton, pressed && styles.pressed]}>
             <Ionicons name="exit-outline" size={16} color="#ffffff" />
-            <Text style={styles.dangerText}>登出/安全关闭</Text>
+            <Text style={styles.dangerText}>Log out</Text>
           </Pressable>
         </View>
       </AppCard>
     </ScrollScreen>
+  );
+}
+
+function DrunkTiResultCard({ result }: { result: DrunkTiResult }) {
+  return (
+    <View style={styles.resultCard}>
+      <View style={styles.resultTopLine}>
+        <Text style={styles.resultEyebrow}>ALCOHOL PERSONALITY CERTIFICATE</Text>
+        <Text style={styles.resultCode}>{result.code}</Text>
+      </View>
+      <View style={styles.resultIdentity}>
+        <View style={styles.resultAvatar}>
+          <Ionicons name="planet-outline" size={27} color="#9fbf8f" />
+        </View>
+        <View style={styles.resultCopy}>
+          <Text numberOfLines={1} style={styles.resultName}>{result.name}</Text>
+          <Text style={styles.resultTagline}>{result.tagline}</Text>
+        </View>
+      </View>
+      <View style={styles.resultStatsGrid}>
+        {result.stats.map((stat) => (
+          <View key={stat.label} style={styles.resultStat}>
+            <View style={styles.resultStatLabelRow}>
+              <Text style={styles.resultStatLabel}>{stat.label}</Text>
+              <Text style={[styles.resultStatValue, { color: stat.color }]}>{stat.value}%</Text>
+            </View>
+            <View style={styles.resultTrack}>
+              <View style={[styles.resultTrackFill, { backgroundColor: stat.color, width: `${stat.value}%` }]} />
+            </View>
+          </View>
+        ))}
+      </View>
+    </View>
   );
 }
 
@@ -105,7 +165,17 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 16,
     overflow: "hidden",
-    padding: 18
+    padding: 18,
+    position: "relative"
+  },
+  heroGlow: {
+    backgroundColor: "rgba(139, 30, 25, 0.26)",
+    borderRadius: 70,
+    height: 140,
+    position: "absolute",
+    right: -34,
+    top: -42,
+    width: 140
   },
   avatar: {
     alignItems: "center",
@@ -115,16 +185,36 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     height: 68,
     justifyContent: "center",
-    width: 68
+    width: 68,
+    zIndex: 1
   },
   identity: {
     flex: 1,
-    minWidth: 0
+    minWidth: 0,
+    zIndex: 1
+  },
+  nameRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 8
   },
   name: {
     color: "#faf6ee",
+    flex: 1,
     fontSize: 22,
     fontWeight: "900"
+  },
+  proBadge: {
+    backgroundColor: "rgba(139, 30, 25, 0.38)",
+    borderColor: "rgba(198, 131, 52, 0.34)",
+    borderRadius: 999,
+    borderWidth: 1,
+    color: "#c68334",
+    fontSize: 9,
+    fontWeight: "900",
+    overflow: "hidden",
+    paddingHorizontal: 8,
+    paddingVertical: 3
   },
   email: {
     color: "#b8aaa1",
@@ -132,24 +222,150 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     marginTop: 4
   },
-  badge: {
+  cellar: {
     color: "#c68334",
     fontSize: 10,
     fontWeight: "900",
     letterSpacing: 1,
-    marginTop: 8
+    marginTop: 9
+  },
+  sectionHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: 8
   },
   sectionTitle: {
     color: "#faf6ee",
     fontSize: 16,
-    fontWeight: "900",
-    marginBottom: 8
+    fontWeight: "900"
   },
   body: {
     color: "#b4ac9f",
     fontSize: 13,
     fontWeight: "600",
     lineHeight: 20
+  },
+  mbtiCard: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 13
+  },
+  mbtiIcon: {
+    alignItems: "center",
+    backgroundColor: "#10291d",
+    borderColor: "rgba(159, 191, 143, 0.46)",
+    borderRadius: 22,
+    borderWidth: 1,
+    height: 44,
+    justifyContent: "center",
+    width: 44
+  },
+  mbtiCopy: {
+    flex: 1
+  },
+  resultCard: {
+    backgroundColor: "#0d1f17",
+    borderColor: "#214b34",
+    borderRadius: 18,
+    borderWidth: 2,
+    gap: 12,
+    padding: 12
+  },
+  resultTopLine: {
+    alignItems: "center",
+    borderBottomColor: "rgba(159, 191, 143, 0.22)",
+    borderBottomWidth: 1,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingBottom: 8
+  },
+  resultEyebrow: {
+    color: "#9fbf8f",
+    flex: 1,
+    fontSize: 8,
+    fontWeight: "900",
+    letterSpacing: 1
+  },
+  resultCode: {
+    backgroundColor: "#214b34",
+    borderRadius: 7,
+    color: "#faf6ee",
+    fontSize: 10,
+    fontWeight: "900",
+    overflow: "hidden",
+    paddingHorizontal: 7,
+    paddingVertical: 3
+  },
+  resultIdentity: {
+    alignItems: "center",
+    backgroundColor: "#08150f",
+    borderColor: "#214b34",
+    borderRadius: 16,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 12,
+    padding: 11
+  },
+  resultAvatar: {
+    alignItems: "center",
+    backgroundColor: "#10291d",
+    borderColor: "#214b34",
+    borderRadius: 24,
+    borderWidth: 1,
+    height: 48,
+    justifyContent: "center",
+    width: 48
+  },
+  resultCopy: {
+    flex: 1,
+    minWidth: 0
+  },
+  resultName: {
+    color: "#ffffff",
+    fontSize: 16,
+    fontWeight: "900"
+  },
+  resultTagline: {
+    color: "#9fbf8f",
+    fontSize: 10,
+    fontWeight: "900",
+    lineHeight: 15,
+    marginTop: 3,
+    textTransform: "uppercase"
+  },
+  resultStatsGrid: {
+    backgroundColor: "#08150f",
+    borderColor: "#214b34",
+    borderRadius: 14,
+    borderWidth: 1,
+    gap: 9,
+    padding: 11
+  },
+  resultStat: {
+    gap: 5
+  },
+  resultStatLabelRow: {
+    flexDirection: "row",
+    justifyContent: "space-between"
+  },
+  resultStatLabel: {
+    color: "#faf6ee",
+    fontSize: 10,
+    fontWeight: "900"
+  },
+  resultStatValue: {
+    fontSize: 10,
+    fontWeight: "900"
+  },
+  resultTrack: {
+    backgroundColor: "#10291d",
+    borderRadius: 999,
+    height: 5,
+    overflow: "hidden"
+  },
+  resultTrackFill: {
+    height: "100%"
   },
   actionRow: {
     flexDirection: "row",

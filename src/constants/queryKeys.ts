@@ -1,8 +1,10 @@
 export const queryKeys = {
   authMe: ["auth", "me"] as const,
   diarySummary: (month: string) => ["diary", "summary", month] as const,
+  diaryCalendar: (month: string) => ["diary", "calendar", month] as const,
   recentSips: ["checkins", "recent"] as const,
-  nearbyBars: (city?: string) => ["bars", "nearby", city] as const,
+  nearbyBars: (params?: { city?: string; lat?: number; lng?: number; radiusMeters?: number } | null) =>
+    ["bars", "nearby", params?.city, params?.lat, params?.lng, params?.radiusMeters] as const,
   barDetail: (barId: string) => ["bars", "detail", barId] as const,
   galleryFeed: (city?: string) => ["gallery", "feed", city] as const,
   userProfile: ["users", "me"] as const,

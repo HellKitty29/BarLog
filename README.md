@@ -1,6 +1,6 @@
 # BarLog Mobile
 
-All alcoholists welcome to your Hole! Just Dig your private obssesion here, meet someone with your burning ethanol heart.
+### All alcoholists welcome to your Hole! Just Dig your private obssesion here, meet someone with your burning ethanol heart.
 
 Expo Router + React Native + TypeScript scaffold for BarLog.
 
@@ -45,3 +45,34 @@ demo@barlog.app / password123
 - `src/services/`: shared technical services such as HTTP, storage, camera, location, media.
 - `src/components/`: reusable UI and layout primitives.
 - `src/theme/`: design tokens.
+
+## Community / Gallery Backend Reminder
+
+The mobile app treats Community and Gallery as the same feed. Both screens read:
+
+```text
+GET /api/gallery/feed?city=Shanghai&range=24h
+```
+
+The response should keep the existing frontend shape:
+
+```ts
+{
+  items: Array<{
+    id: string;
+    userId: string;
+    authorName: string;
+    imageUrl: string;
+    caption?: string;
+    city?: string;
+    barName?: string;
+    likedCount: number;
+    createdAt: string;
+  }>;
+  nextCursor?: string;
+}
+```
+
+For the real backend, public or `tonight_only` check-ins should be projected into this feed after `POST /api/checkins`. A practical mapping is `imageUrl = cardImageUrl ?? photoUrl`, `caption = vibeMumbling`, plus `barName`, `city`, `userId`, `authorName`, `createdAt`, and `likedCount`.
+
+If the backend later needs a stronger relation between a feed post and its source check-in, add an optional `checkInId` or `sourceCheckInId` field deliberately across the API contract. The current frontend does not require that field.

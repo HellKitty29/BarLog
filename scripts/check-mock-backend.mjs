@@ -39,8 +39,9 @@ try {
 
   const bars = await request("/api/bars/nearby?city=Shanghai");
   assert.equal(bars.response.status, 200);
-  assert.ok(Array.isArray(bars.json));
-  assert.ok(bars.json.length > 0);
+  const barItems = Array.isArray(bars.json) ? bars.json : bars.json.items;
+  assert.ok(Array.isArray(barItems));
+  assert.ok(barItems.length > 0);
 
   const created = await request("/api/checkins", {
     method: "POST",

@@ -13,8 +13,10 @@ import {
   type TextInputProps,
   View
 } from "react-native";
+import { authApi } from "@/features/auth/auth.api";
 import { useAuthStore } from "@/features/auth/auth.store";
 import { saveLocalSessionUser } from "@/features/auth/local-session";
+import { setAccessToken, setRefreshToken } from "@/services/storage/token-storage";
 
 type AuthMode = "login" | "register";
 type ToastKind = "error" | "success";
@@ -70,13 +72,18 @@ export default function LoginScreen() {
   };
 
   const completeAuth = async (nextEmail: string, nextName: string) => {
+    const response = mode === "login"
+      ? await authApi.login({ email: nextEmail, password })
+      : await authApi.register({ displayName: nextName, email: nextEmail, password });
     const user = {
-      id: `local-${nextEmail.toLowerCase()}`,
-      displayName: nextName,
-      email: nextEmail,
-      city: "Shanghai",
-      persona: "Crimson night explorer"
+      ...response.user,
+      email: response.user.email ?? nextEmail
     };
+
+    await setAccessToken(response.accessToken);
+    if (response.refreshToken) {
+      await setRefreshToken(response.refreshToken);
+    }
     await saveLocalSessionUser(user);
     setUser(user);
     router.replace("/(tabs)/diary");
@@ -101,9 +108,13 @@ export default function LoginScreen() {
 
     setLoading(true);
     showToast(mode === "login" ? "正在开启私人酒单..." : "正在封存今夜昵称...");
-    setTimeout(() => {
-      void completeAuth(trimmedEmail, mode === "register" ? trimmedName : trimmedName || trimmedEmail.split("@")[0]);
-    }, 650);
+    try {
+      await completeAuth(trimmedEmail, mode === "register" ? trimmedName : trimmedName || trimmedEmail.split("@")[0]);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Unable to authenticate.", "error");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const socialConnect = (platform: string, name: string) => {
