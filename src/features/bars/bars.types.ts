@@ -4,6 +4,7 @@ export type NearbyBarsParams = {
   lat?: number;
   lng?: number;
   city?: string;
+  radiusMeters?: number;
 };
 
 export type BarRankingsParams = {
@@ -19,4 +20,10 @@ export type BarDetail = Bar & {
 
 export type BarCheckinsResponse = {
   items: CheckIn[];
+};
+
+export type NearbyBarsResponse = {
+  items: Bar[];
+  source: "google_places" | "mock_fallback" | "google_places_error";
+  message?: string;
 };

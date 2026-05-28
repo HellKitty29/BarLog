@@ -1,5 +1,6 @@
 import { ReactNode } from "react";
-import { ScrollView, StyleSheet } from "react-native";
+import { Platform, ScrollView, StyleSheet } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors, spacing } from "@/theme";
 
 type ScrollScreenProps = {
@@ -7,8 +8,22 @@ type ScrollScreenProps = {
 };
 
 export function ScrollScreen({ children }: ScrollScreenProps) {
+  const insets = useSafeAreaInsets();
+
   return (
-    <ScrollView contentContainerStyle={styles.content} style={styles.container}>
+    <ScrollView
+      automaticallyAdjustKeyboardInsets
+      contentContainerStyle={[
+        styles.content,
+        {
+          paddingBottom: insets.bottom + spacing.xxl,
+          paddingTop: insets.top + spacing.lg
+        }
+      ]}
+      keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+      keyboardShouldPersistTaps="handled"
+      style={styles.container}
+    >
       {children}
     </ScrollView>
   );
@@ -20,7 +35,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background
   },
   content: {
-    padding: spacing.lg,
-    gap: spacing.lg
+    gap: spacing.lg,
+    paddingHorizontal: spacing.lg
   }
 });

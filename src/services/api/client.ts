@@ -1,14 +1,16 @@
-import axios, { type AxiosRequestConfig } from "axios";
+import { create, type AxiosRequestConfig } from "axios";
 import { attachAuthInterceptor } from "./auth-interceptor";
 import { normalizeApiError } from "./error-handler";
 
-const baseURL = process.env.EXPO_PUBLIC_API_BASE_URL;
+const healthApiUrl = process.env.EXPO_PUBLIC_HEALTH_API_URL;
+const apiBaseUrlFromHealth = healthApiUrl?.replace(/\/health\/?$/, "");
+const baseURL = apiBaseUrlFromHealth ?? process.env.EXPO_PUBLIC_API_BASE_URL;
 
 if (!baseURL) {
-  console.warn("EXPO_PUBLIC_API_BASE_URL is not set. API requests will fail until it is configured.");
+  console.warn("EXPO_PUBLIC_HEALTH_API_URL or EXPO_PUBLIC_API_BASE_URL is required. API requests will fail until one is configured.");
 }
 
-export const httpClient = axios.create({
+export const httpClient = create({
   baseURL,
   timeout: 15000,
   headers: {

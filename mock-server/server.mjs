@@ -1,11 +1,83 @@
 import { createServer } from "node:http";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { randomUUID } from "node:crypto";
+import { ProxyAgent } from "undici";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const rootDir = join(__dirname, "..");
+const envPath = join(rootDir, ".env");
+
+if (existsSync(envPath)) {
+  const env = readFileSync(envPath, "utf8");
+  for (const line of env.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#") || !trimmed.includes("=")) {
+      continue;
+    }
+
+    const [key, ...valueParts] = trimmed.split("=");
+    const rawValue = valueParts.join("=");
+    const value = rawValue.replace(/^["']|["']$/g, "");
+    process.env[key] ??= value;
+  }
+}
+
 const seed = JSON.parse(readFileSync(join(__dirname, "db.json"), "utf8"));
+const proxyUrl = process.env.HTTPS_PROXY || process.env.HTTP_PROXY;
+let fetchDispatcher;
+
+if (proxyUrl) {
+  try {
+    fetchDispatcher = new ProxyAgent(proxyUrl);
+  } catch (_error) {
+    console.warn(`Ignoring invalid proxy URL: ${proxyUrl}`);
+  }
+}
+const defaultSingaporeLocation = {
+  lat: 1.2879,
+  lng: 103.8491
+};
+
+const singaporeFallbackBars = [
+  {
+    id: "sg_bar_001",
+    name: "Nightjar Social",
+    city: "Singapore",
+    area: "Boat Quay",
+    address: "Boat Quay, Singapore",
+    rating: 4.7,
+    distanceMeters: 180,
+    lat: 1.2872,
+    lng: 103.8484,
+    tags: ["bar", "cocktail"]
+  },
+  {
+    id: "sg_bar_002",
+    name: "Velvet Alley",
+    city: "Singapore",
+    area: "Clarke Quay",
+    address: "Clarke Quay, Singapore",
+    rating: 4.5,
+    distanceMeters: 420,
+    lat: 1.2896,
+    lng: 103.8465,
+    tags: ["bar", "speakeasy"]
+  },
+  {
+    id: "sg_bar_003",
+    name: "Lantern Pour",
+    city: "Singapore",
+    area: "Raffles Place",
+    address: "Raffles Place, Singapore",
+    rating: 4.6,
+    distanceMeters: 690,
+    lat: 1.2849,
+    lng: 103.8515,
+    tags: ["bar", "wine"]
+  }
+];
 
 function cloneSeed() {
   return JSON.parse(JSON.stringify(seed));
@@ -55,6 +127,72 @@ function publicUser(user) {
 
 function monthMatches(dateString, month) {
   return !month || dateString.startsWith(month);
+}
+
+function toNumber(value, fallback) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function mapGooglePlaceToBar(place, index) {
+  return {
+    id: place.id ?? `google_place_${index}`,
+    name: place.displayName?.text ?? "Unnamed bar",
+    city: "Singapore",
+    address: place.formattedAddress,
+    rating: place.rating,
+    lat: place.location?.latitude,
+    lng: place.location?.longitude,
+    tags: place.types?.filter((type) => type !== "point_of_interest" && type !== "establishment")
+  };
+}
+
+async function fetchGoogleBars({ lat, lng, radiusMeters }) {
+  if (!process.env.GOOGLE_PLACES_API_KEY || process.env.GOOGLE_PLACES_API_KEY === "YOUR_API_KEY") {
+    return undefined;
+  }
+
+  const timeoutSignal = typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
+    ? AbortSignal.timeout(8000)
+    : undefined;
+  const response = await fetch("https://places.googleapis.com/v1/places:searchNearby", {
+    method: "POST",
+    dispatcher: fetchDispatcher,
+    signal: timeoutSignal,
+    headers: {
+      "Content-Type": "application/json",
+      "X-Goog-Api-Key": process.env.GOOGLE_PLACES_API_KEY,
+      "X-Goog-FieldMask": [
+        "places.id",
+        "places.displayName",
+        "places.formattedAddress",
+        "places.location",
+        "places.rating",
+        "places.types"
+      ].join(",")
+    },
+    body: JSON.stringify({
+      includedTypes: ["bar"],
+      maxResultCount: 20,
+      locationRestriction: {
+        circle: {
+          center: {
+            latitude: lat,
+            longitude: lng
+          },
+          radius: radiusMeters
+        }
+      }
+    })
+  });
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(`Google Places request failed: ${response.status} ${message}`);
+  }
+
+  const payload = await response.json();
+  return (payload.places ?? []).map(mapGooglePlaceToBar);
 }
 
 function createRouter(database) {
@@ -126,7 +264,9 @@ function createRouter(database) {
         return;
       }
 
-      if (path.startsWith("/api/") && !isAuthenticated(request)) {
+      const isPublicApiRoute = method === "GET" && path === "/api/bars/nearby";
+
+      if (path.startsWith("/api/") && !isPublicApiRoute && !isAuthenticated(request)) {
         sendJson(response, 401, { message: "Missing mock bearer token", code: "AUTH_REQUIRED" });
         return;
       }
@@ -236,8 +376,47 @@ function createRouter(database) {
 
       if (method === "GET" && path === "/api/bars/nearby") {
         const city = url.searchParams.get("city");
-        const bars = city ? database.bars.filter((bar) => bar.city === city) : database.bars;
-        sendJson(response, 200, bars);
+        const hasCoordinates = url.searchParams.has("lat") || url.searchParams.has("lng");
+        const lat = toNumber(url.searchParams.get("lat"), defaultSingaporeLocation.lat);
+        const lng = toNumber(url.searchParams.get("lng"), defaultSingaporeLocation.lng);
+        const radiusMeters = toNumber(url.searchParams.get("radiusMeters"), 2000);
+
+        if (city && !hasCoordinates) {
+          sendJson(response, 200, {
+            items: database.bars.filter((bar) => bar.city === city),
+            source: "mock_fallback",
+            message: "City queries use mock seed data"
+          });
+          return;
+        }
+
+        try {
+          const googleBars = await fetchGoogleBars({ lat, lng, radiusMeters });
+          if (googleBars) {
+            sendJson(response, 200, {
+              items: googleBars,
+              source: "google_places"
+            });
+            return;
+          }
+        } catch (error) {
+          const message = error instanceof Error
+            ? `${error.message}${error.cause?.code ? ` (${error.cause.code})` : ""}${error.cause?.message ? `: ${error.cause.message}` : ""}`
+            : "Google Places request failed";
+          console.warn(message);
+          sendJson(response, 200, {
+            items: singaporeFallbackBars,
+            source: "google_places_error",
+            message
+          });
+          return;
+        }
+
+        sendJson(response, 200, {
+          items: city ? database.bars.filter((bar) => bar.city === city) : singaporeFallbackBars,
+          source: "mock_fallback",
+          message: "GOOGLE_PLACES_API_KEY is not set"
+        });
         return;
       }
 
@@ -440,7 +619,7 @@ export function createMockBackend(options = {}) {
   return createServer(createRouter(database));
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const port = Number(process.env.PORT ?? 4000);
   const host = process.env.HOST ?? "0.0.0.0";
   const server = createMockBackend();
