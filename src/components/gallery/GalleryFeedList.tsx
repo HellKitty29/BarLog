@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
-import { Image, StyleSheet, Text, View } from "react-native";
+import { router } from "expo-router";
+import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 import { AppCard } from "@/components/common/AppCard";
 import { EmptyState } from "@/components/common/EmptyState";
 import { ErrorState } from "@/components/common/ErrorState";
@@ -7,15 +8,52 @@ import { LoadingView } from "@/components/common/LoadingView";
 import { useGalleryFeedQuery } from "@/features/gallery/gallery.queries";
 import { colors, spacing, typography } from "@/theme";
 import type { GalleryFeedParams } from "@/features/gallery/gallery.types";
+import { ApiError } from "@/services/api/error-handler";
 
 type GalleryFeedListProps = {
   emptyTitle?: string;
   params?: GalleryFeedParams;
 };
 
+const defaultFeedParams: GalleryFeedParams = {
+  range: "7d"
+};
+
+function resolveFeedError(error: unknown) {
+  if (!(error instanceof ApiError)) {
+    return {
+      message: error instanceof Error ? error.message : "Unable to load community feed.",
+      showLogin: false,
+      showCheckIn: false
+    };
+  }
+
+  if (error.code === "AUTH_REQUIRED" || error.status === 401) {
+    return {
+      message: "登录后才能查看社区动态。",
+      showLogin: true,
+      showCheckIn: false
+    };
+  }
+
+  if (error.code === "COMMUNITY_CHECKIN_REQUIRED" || error.status === 403) {
+    return {
+      message: "完成今日打卡后即可解锁社区，查看大家今晚的公开动态。",
+      showLogin: false,
+      showCheckIn: true
+    };
+  }
+
+  return {
+    message: error.message,
+    showLogin: false,
+    showCheckIn: false
+  };
+}
+
 export function GalleryFeedList({
-  emptyTitle = "No posts returned",
-  params = { city: "Shanghai", range: "24h" }
+  emptyTitle = "No posts yet",
+  params = defaultFeedParams
 }: GalleryFeedListProps) {
   const feed = useGalleryFeedQuery(params);
 
@@ -24,11 +62,32 @@ export function GalleryFeedList({
   }
 
   if (feed.isError) {
-    return <ErrorState message={feed.error.message} />;
+    const { message, showLogin, showCheckIn } = resolveFeedError(feed.error);
+
+    return (
+      <View style={styles.errorBlock}>
+        <ErrorState message={message} />
+        {showLogin ? (
+          <Pressable onPress={() => router.push("/(auth)/login")} style={styles.actionButton}>
+            <Text style={styles.actionButtonText}>去登录</Text>
+          </Pressable>
+        ) : null}
+        {showCheckIn ? (
+          <Pressable onPress={() => router.push("/sip/capture")} style={styles.actionButton}>
+            <Text style={styles.actionButtonText}>去打卡</Text>
+          </Pressable>
+        ) : null}
+      </View>
+    );
   }
 
   if (!feed.data?.items.length) {
-    return <EmptyState title={emptyTitle} />;
+    return (
+      <EmptyState
+        title={emptyTitle}
+        body="社区展示大家公开或今夜可见的打卡。发布 Sip 时选择 public 或 tonight_only，即可出现在这里。"
+      />
+    );
   }
 
   return (
@@ -44,21 +103,12 @@ export function GalleryFeedList({
                 </Text>
                 <View style={styles.likePill}>
                   <Ionicons name="heart" size={11} color="#c68334" />
-                  <Text style={styles.likeText}>{post.likedCount}</Text>
+                  <Text style={styles.likeText}>{post.likedCount ?? 0}</Text>
                 </View>
               </View>
-              <Text numberOfLines={2} style={styles.caption}>
-                {post.caption ?? post.barName ?? "Shared a new check-in"}
+              <Text numberOfLines={3} style={styles.caption}>
+                {post.caption?.trim() || "Shared a new check-in"}
               </Text>
-              <View style={styles.metaRow}>
-                {post.barName ? (
-                  <>
-                    <Ionicons name="location-outline" size={12} color="#c68334" />
-                    <Text numberOfLines={1} style={styles.metaText}>{post.barName}</Text>
-                  </>
-                ) : null}
-                {post.city ? <Text style={styles.cityText}>{post.city}</Text> : null}
-              </View>
             </View>
           </View>
         </AppCard>
@@ -68,6 +118,22 @@ export function GalleryFeedList({
 }
 
 const styles = StyleSheet.create({
+  errorBlock: {
+    gap: spacing.md
+  },
+  actionButton: {
+    alignItems: "center",
+    alignSelf: "flex-start",
+    backgroundColor: colors.primary,
+    borderRadius: 999,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm
+  },
+  actionButtonText: {
+    color: colors.white,
+    fontSize: 13,
+    fontWeight: "800"
+  },
   list: {
     gap: spacing.md
   },
@@ -121,23 +187,5 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     lineHeight: 20,
     marginTop: 5
-  },
-  metaRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 5,
-    marginTop: 8
-  },
-  metaText: {
-    color: "#a8988c",
-    flexShrink: 1,
-    fontSize: 11,
-    fontWeight: "800"
-  },
-  cityText: {
-    color: "#6f625a",
-    fontSize: 10,
-    fontWeight: "800",
-    marginLeft: "auto"
   }
 });

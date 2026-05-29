@@ -6,7 +6,7 @@ Base URL：`EXPO_PUBLIC_API_BASE_URL`（如 `http://54.251.141.226:8080`）
 
 **附近酒吧响应：** `{ items: Bar[], source: "google_places"|"mock_fallback"|"google_places_error", message? }`
 
-**社区额外规则：** 须**今日打卡**才能看 Feed；打卡 `visibility` 须为 `public` 或 `tonight_only` 才会出现在社区。
+**社区额外规则：** 须**今日任意打卡**（不限城市/酒吧）才能解锁 Feed；Feed 为全球公开动态，不区分地区/酒吧；打卡 `visibility` 须为 `public` 或 `tonight_only` 才会出现在社区。
 
 ---
 
@@ -48,14 +48,14 @@ Base URL：`EXPO_PUBLIC_API_BASE_URL`（如 `http://54.251.141.226:8080`）
 
 | 方法 | 路径 | 功能 |
 |------|------|------|
-| GET | `/api/community/eligibility?city=&barId=` | 今日是否可看 Feed |
-| GET | `/api/community/feed?scope=city\|bar&city=&barId=&range=24h&cursor=&limit=` | 帖子流 |
+| GET | `/api/community/eligibility` | 今日是否已解锁社区 |
+| GET | `/api/community/feed?range=24h&cursor=&limit=` | 全球帖子流（需今日打卡解锁） |
 | POST | `/api/community/posts/{checkInId}/like` | 点赞/取消 |
 | GET | `/api/community/posts/{checkInId}/comments` | 评论列表 |
 | POST | `/api/community/posts/{checkInId}/comments` | 发评论 `{ "body": "..." }` |
 | POST | `/api/community/users/{userId}/wave` | 打招呼开聊 `{ "checkInId?": "..." }` → `{ conversationId }` |
 
-**规则：** 须今日打卡才能看 Feed，否则 403；Feed 仅含公开且未过期打卡。
+**规则：** 须今日任意打卡解锁社区；Feed 为全球公开动态，不区分城市/酒吧；仅含 public/tonight_only 且未过期打卡。
 
 ---
 
@@ -83,7 +83,7 @@ Base URL：`EXPO_PUBLIC_API_BASE_URL`（如 `http://54.251.141.226:8080`）
 |------|------|------|
 | 401 | `AUTH_REQUIRED` | 未登录 |
 | 403 | `CHECKIN_FORBIDDEN` | 无权读他人打卡 |
-| 403 | `COMMUNITY_CHECKIN_REQUIRED` | 未今日打卡 |
+| 403 | `COMMUNITY_CHECKIN_REQUIRED` | 今日尚未打卡，社区未解锁 |
 
 ---
 

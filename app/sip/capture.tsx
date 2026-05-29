@@ -3,7 +3,7 @@ import { useMutation } from "@tanstack/react-query";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Alert, Image, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Alert, Image, Linking, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { AppButton } from "@/components/common/AppButton";
 import { AppHeader } from "@/components/common/AppHeader";
 import { ScrollScreen } from "@/components/layout/ScrollScreen";
@@ -12,8 +12,10 @@ import { draftToCreateCheckInPayload } from "@/features/sip/sip.helpers";
 import { useSipDraftStore } from "@/features/sip/sip.store";
 import { uploadApi } from "@/features/upload/upload.api";
 import { createImageFormData } from "@/features/upload/upload.helpers";
-import { requestCameraPermission } from "@/services/camera/camera-permission";
+import { requestCameraPermissionState, requestMediaLibraryPermissionState } from "@/services/camera/camera-permission";
 import { pickImageFromLibrary, takePhotoWithCamera } from "@/services/camera/image-picker-service";
+import { prefersLibraryOverCamera } from "@/services/platform/device-platform";
+import { getCameraGuidance, getMediaLibraryGuidance } from "@/services/platform/permission-guidance";
 import { colors, spacing, typography } from "@/theme";
 import type { DrinkCategory, SipDraft } from "@/types/domain";
 
@@ -81,9 +83,15 @@ export default function SipCaptureScreen() {
   }, []);
 
   async function capturePhoto() {
-    const hasPermission = await requestCameraPermission();
-    if (!hasPermission) {
-      Alert.alert("Camera access needed", "Please allow camera access to take a check-in photo.");
+    const permission = await requestCameraPermissionState();
+    if (!permission.granted) {
+      const guidance = getCameraGuidance(false);
+      Alert.alert(guidance.title, guidance.message, guidance.action === "settings"
+        ? [
+            { text: "取消", style: "cancel" },
+            { text: guidance.actionLabel ?? "打开设置", onPress: () => { void Linking.openSettings(); } }
+          ]
+        : [{ text: "知道了" }]);
       return;
     }
 
@@ -94,6 +102,13 @@ export default function SipCaptureScreen() {
   }
 
   async function choosePhoto() {
+    const permission = await requestMediaLibraryPermissionState();
+    if (!permission.granted && Platform.OS !== "web") {
+      const guidance = getMediaLibraryGuidance(false);
+      Alert.alert(guidance.title, guidance.message);
+      return;
+    }
+
     const result = await pickImageFromLibrary();
     if (!result.canceled) {
       startCardGeneration(result.assets[0]?.uri);
@@ -168,16 +183,35 @@ export default function SipCaptureScreen() {
             <Ionicons name="camera" size={38} color="#faf6ee" />
           </View>
           <Text style={styles.panelTitle}>Start with a drink photo</Text>
-          <Text style={styles.panelBody}>Taking or uploading a photo will generate a mock card immediately.</Text>
+          <Text style={styles.panelBody}>
+            {prefersLibraryOverCamera()
+              ? "手机浏览器建议优先从相册选择；原生 App 可直接拍照。"
+              : "Taking or uploading a photo will generate a mock card immediately."}
+          </Text>
           <View style={styles.actionRow}>
-            <Pressable onPress={capturePhoto} style={styles.primaryAction}>
-              <Ionicons name="camera-outline" size={18} color="#ffffff" />
-              <Text style={styles.primaryActionText}>Camera</Text>
-            </Pressable>
-            <Pressable onPress={choosePhoto} style={styles.secondaryAction}>
-              <Ionicons name="image-outline" size={18} color="#faf6ee" />
-              <Text style={styles.secondaryActionText}>Upload</Text>
-            </Pressable>
+            {prefersLibraryOverCamera() ? (
+              <>
+                <Pressable onPress={choosePhoto} style={styles.primaryAction}>
+                  <Ionicons name="image-outline" size={18} color="#ffffff" />
+                  <Text style={styles.primaryActionText}>相册选择</Text>
+                </Pressable>
+                <Pressable onPress={capturePhoto} style={styles.secondaryAction}>
+                  <Ionicons name="camera-outline" size={18} color="#faf6ee" />
+                  <Text style={styles.secondaryActionText}>拍照</Text>
+                </Pressable>
+              </>
+            ) : (
+              <>
+                <Pressable onPress={capturePhoto} style={styles.primaryAction}>
+                  <Ionicons name="camera-outline" size={18} color="#ffffff" />
+                  <Text style={styles.primaryActionText}>Camera</Text>
+                </Pressable>
+                <Pressable onPress={choosePhoto} style={styles.secondaryAction}>
+                  <Ionicons name="image-outline" size={18} color="#faf6ee" />
+                  <Text style={styles.secondaryActionText}>Upload</Text>
+                </Pressable>
+              </>
+            )}
           </View>
         </View>
       ) : null}

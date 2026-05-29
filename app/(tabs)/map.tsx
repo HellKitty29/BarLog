@@ -15,6 +15,7 @@ import { useNearbyBarsQuery } from "@/features/bars/bars.queries";
 import { discoverTabs } from "@/features/map/map.constants";
 import { createMapRegionForCoordinates, createNearbyBarsParams, defaultDiscoveryCoordinates } from "@/services/location/map-region";
 import { calculateDistanceMeters } from "@/services/location/geo-utils";
+import { getLocationGuidance, type PermissionGuidance } from "@/services/platform/permission-guidance";
 import { getCurrentCoordinates, LocationAccessError, type Coordinates } from "@/services/location/location-service";
 import { colors, spacing, typography } from "@/theme";
 import { formatDistance, formatRating } from "@/utils/format";
@@ -23,8 +24,7 @@ export default function MapScreen() {
   const [tab, setTab] = useState("bars");
   const [coords, setCoords] = useState<Coordinates | null>(null);
   const [isLocating, setIsLocating] = useState(true);
-  const [locationError, setLocationError] = useState<string | null>(null);
-  const [locationAction, setLocationAction] = useState<"retry" | "settings" | null>(null);
+  const [locationError, setLocationError] = useState<PermissionGuidance | null>(null);
   const [expandedBarId, setExpandedBarId] = useState<string | null>(null);
   const nearbyBarsParams = useMemo(() => createNearbyBarsParams(coords), [coords]);
   const nearbyBars = useNearbyBarsQuery(nearbyBarsParams, {
@@ -52,19 +52,15 @@ export default function MapScreen() {
   const loadLocation = useCallback(async () => {
     setIsLocating(true);
     setLocationError(null);
-    setLocationAction(null);
 
     try {
       const currentCoords = await getCurrentCoordinates();
 
       setCoords(currentCoords);
       setLocationError(null);
-      setLocationAction(null);
     } catch (error) {
-      const resolvedError = resolveLocationError(error);
       setCoords(null);
-      setLocationError(resolvedError.message);
-      setLocationAction(resolvedError.action);
+      setLocationError(resolveLocationError(error));
     } finally {
       setIsLocating(false);
     }
@@ -83,12 +79,9 @@ export default function MapScreen() {
 
         setCoords(currentCoords);
         setLocationError(null);
-        setLocationAction(null);
       } catch (error) {
         if (isMounted) {
-          const resolvedError = resolveLocationError(error);
-          setLocationError(resolvedError.message);
-          setLocationAction(resolvedError.action);
+          setLocationError(resolveLocationError(error));
         }
       } finally {
         if (isMounted) {
@@ -124,8 +117,7 @@ export default function MapScreen() {
           {nearbyBars.isLoading ? <LoadingView label="Loading nearby bars" /> : null}
           {locationError ? (
             <LocationErrorCard
-              action={locationAction}
-              message={locationError}
+              guidance={locationError}
               onOpenSettings={() => {
                 void Linking.openSettings();
               }}
@@ -195,10 +187,10 @@ export default function MapScreen() {
         <>
           <View style={styles.sectionLabelRow}>
             <Ionicons name="people-circle" size={17} color="#c68334" />
-            <Text style={styles.sectionLabel}>COMMUNITY GALLERY</Text>
+            <Text style={styles.sectionLabel}>COMMUNITY</Text>
             <View style={styles.sectionRule} />
           </View>
-          <GalleryFeedList emptyTitle="No community posts returned" />
+          <GalleryFeedList emptyTitle="No community posts yet" />
         </>
       ) : (
         <EmptyState title={`${discoverTabs.find((item) => item.key === tab)?.label} panel`} body="Wire this tab to its feature API next." />
@@ -217,55 +209,42 @@ function DetailRow({ icon, label, value }: { icon: keyof typeof Ionicons.glyphMa
   );
 }
 
-function resolveLocationError(error: unknown): { action: "retry" | "settings"; message: string } {
+function resolveLocationError(error: unknown): PermissionGuidance {
   if (error instanceof LocationAccessError) {
-    if (error.code === "permission_blocked") {
-      return {
-        action: "settings",
-        message: "Location permission is blocked. Open Android settings, allow location for BarLog, then return to Discover."
-      };
-    }
-
-    if (error.code === "services_disabled") {
-      return {
-        action: "retry",
-        message: "Android location services are off. Turn on Location, then retry."
-      };
-    }
-
-    return {
-      action: "retry",
-      message: "Location permission was not granted. Tap retry to request it again."
-    };
+    return getLocationGuidance(error.code);
   }
 
   return {
+    title: "无法获取定位",
+    message: "请检查浏览器或系统的定位权限后重试。",
     action: "retry",
-    message: "Unable to read your current location. Tap retry after checking Android location permissions."
+    actionLabel: "重试"
   };
 }
 
 function LocationErrorCard({
-  action,
-  message,
+  guidance,
   onOpenSettings,
   onRetry
 }: {
-  action: "retry" | "settings" | null;
-  message: string;
+  guidance: PermissionGuidance;
   onOpenSettings: () => void;
   onRetry: () => void;
 }) {
+  const onPress = guidance.action === "settings" ? onOpenSettings : onRetry;
+
   return (
     <View style={styles.locationErrorCard}>
       <View style={styles.locationErrorHeader}>
         <Ionicons name="alert-circle" size={17} color="#c68334" />
-        <Text style={styles.locationErrorTitle}>Location access needed</Text>
+        <Text style={styles.locationErrorTitle}>{guidance.title}</Text>
       </View>
-      <Text style={styles.locationErrorText}>{message}</Text>
-      <Pressable onPress={action === "settings" ? onOpenSettings : onRetry} style={styles.locationErrorButton}>
-        <Text style={styles.locationErrorButtonText}>{action === "settings" ? "Open Settings" : "Retry Permission"}</Text>
-      </Pressable>
+      <Text style={styles.locationErrorText}>{guidance.message}</Text>
+      {guidance.action === "none" ? null : (
+        <Pressable onPress={onPress} style={styles.locationErrorButton}>
+          <Text style={styles.locationErrorButtonText}>{guidance.actionLabel ?? "重试"}</Text>
+        </Pressable>
+      )}
     </View>
   );
 }

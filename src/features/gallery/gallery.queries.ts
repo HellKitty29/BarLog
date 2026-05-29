@@ -5,7 +5,7 @@ import type { GalleryFeedParams } from "./gallery.types";
 
 export function useGalleryFeedQuery(params: GalleryFeedParams) {
   return useQuery({
-    queryKey: queryKeys.galleryFeed(params.city),
+    queryKey: queryKeys.galleryFeed(params),
     queryFn: () => galleryApi.getFeed(params)
   });
 }
