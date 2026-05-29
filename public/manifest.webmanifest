@@ -1,0 +1,19 @@
+{
+  "name": "BarLog",
+  "short_name": "BarLog",
+  "description": "Mobile-first bar diary, map, and sip check-in PWA.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0d0504",
+  "theme_color": "#120605",
+  "icons": [
+    {
+      "src": "/pwa-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

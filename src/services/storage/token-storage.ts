@@ -1,52 +1,47 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import * as SecureStore from "expo-secure-store";
-import { Platform } from "react-native";
-
 const ACCESS_TOKEN_KEY = "barlog.accessToken";
 const REFRESH_TOKEN_KEY = "barlog.refreshToken";
 
-async function readItem(key: string) {
-  if (Platform.OS === "web") {
-    return AsyncStorage.getItem(key);
+function readStorage(key: string) {
+  if (typeof localStorage === "undefined") {
+    return null;
   }
 
-  return SecureStore.getItemAsync(key);
+  return localStorage.getItem(key);
 }
 
-async function writeItem(key: string, value: string) {
-  if (Platform.OS === "web") {
-    await AsyncStorage.setItem(key, value);
+function writeStorage(key: string, value: string) {
+  if (typeof localStorage === "undefined") {
     return;
   }
 
-  await SecureStore.setItemAsync(key, value);
+  localStorage.setItem(key, value);
 }
 
-async function removeItem(key: string) {
-  if (Platform.OS === "web") {
-    await AsyncStorage.removeItem(key);
+function removeStorage(key: string) {
+  if (typeof localStorage === "undefined") {
     return;
   }
 
-  await SecureStore.deleteItemAsync(key);
+  localStorage.removeItem(key);
 }
 
 export async function getAccessToken() {
-  return readItem(ACCESS_TOKEN_KEY);
+  return readStorage(ACCESS_TOKEN_KEY);
 }
 
 export async function setAccessToken(token: string) {
-  await writeItem(ACCESS_TOKEN_KEY, token);
+  writeStorage(ACCESS_TOKEN_KEY, token);
 }
 
 export async function getRefreshToken() {
-  return readItem(REFRESH_TOKEN_KEY);
+  return readStorage(REFRESH_TOKEN_KEY);
 }
 
 export async function setRefreshToken(token: string) {
-  await writeItem(REFRESH_TOKEN_KEY, token);
+  writeStorage(REFRESH_TOKEN_KEY, token);
 }
 
 export async function clearTokens() {
-  await Promise.all([removeItem(ACCESS_TOKEN_KEY), removeItem(REFRESH_TOKEN_KEY)]);
+  removeStorage(ACCESS_TOKEN_KEY);
+  removeStorage(REFRESH_TOKEN_KEY);
 }

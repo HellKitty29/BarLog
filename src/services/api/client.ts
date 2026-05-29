@@ -2,12 +2,28 @@ import { create, type AxiosRequestConfig } from "axios";
 import { attachAuthInterceptor } from "./auth-interceptor";
 import { normalizeApiError } from "./error-handler";
 
-const healthApiUrl = process.env.EXPO_PUBLIC_HEALTH_API_URL;
+const viteEnv = typeof import.meta !== "undefined" ? import.meta.env : undefined;
+const processEnv = typeof process !== "undefined" ? process.env : undefined;
+const healthApiUrl =
+  viteEnv?.VITE_HEALTH_API_URL ??
+  viteEnv?.EXPO_PUBLIC_HEALTH_API_URL ??
+  processEnv?.EXPO_PUBLIC_HEALTH_API_URL;
 const apiBaseUrlFromHealth = healthApiUrl?.replace(/\/health\/?$/, "");
-const baseURL = apiBaseUrlFromHealth ?? process.env.EXPO_PUBLIC_API_BASE_URL;
+const shouldUseLocalProxy = typeof window !== "undefined" && ["5173", "4173"].includes(window.location.port);
+const browserMockBaseUrl = typeof window !== "undefined"
+  ? `${window.location.protocol}//${window.location.hostname}:4000`
+  : undefined;
+const baseURL =
+  shouldUseLocalProxy
+    ? undefined
+    : apiBaseUrlFromHealth ??
+      viteEnv?.VITE_API_BASE_URL ??
+      viteEnv?.EXPO_PUBLIC_API_BASE_URL ??
+      processEnv?.EXPO_PUBLIC_API_BASE_URL ??
+      browserMockBaseUrl;
 
 if (!baseURL) {
-  console.warn("EXPO_PUBLIC_HEALTH_API_URL or EXPO_PUBLIC_API_BASE_URL is required. API requests will fail until one is configured.");
+  console.warn("VITE_HEALTH_API_URL, VITE_API_BASE_URL, EXPO_PUBLIC_HEALTH_API_URL, or EXPO_PUBLIC_API_BASE_URL is required. API requests will fail until one is configured.");
 }
 
 export const httpClient = create({
