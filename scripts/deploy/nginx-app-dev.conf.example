@@ -1,0 +1,36 @@
+# BarLog Expo Web 静态站 — Nginx 配置示例
+# 安装：
+#   sudo cp scripts/deploy/nginx-app-dev.conf.example /etc/nginx/conf.d/barlog-app-dev.conf
+#   sudo nginx -t && sudo systemctl reload nginx
+#
+# 静态文件目录：/var/www/barlog-app-dev
+# API 仍在 Docker :8080，前端通过 CORS 跨域访问（无需改前端 API 地址）
+
+server {
+    listen 80;
+    server_name 54.251.141.226;
+
+    root /var/www/barlog-app-dev;
+    index index.html;
+
+    client_max_body_size 12m;
+
+    # Expo Router SPA：刷新子路由不 404
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # 静态资源缓存
+    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff2?|ttf|map)$ {
+        expires 7d;
+        add_header Cache-Control "public";
+    }
+
+    # 可选：健康检查占位（真实 API 在 :8080）
+    location = /health {
+        default_type application/json;
+        return 200 '{"ok":true,"service":"barlog-web-static"}';
+    }
+}
+
+# 有域名后改为 server_name app-dev.barlog.app; 并加 Cloudflare Origin SSL 443 块
