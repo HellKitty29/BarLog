@@ -1,5 +1,6 @@
 import {
   AlertCircle,
+  ArrowLeft,
   BookOpen,
   Camera,
   ChevronDown,
@@ -616,7 +617,13 @@ function MeScreen({ user, onLogout }: { user: UserType; onLogout: () => void }) 
 
 function CommunityFeed() {
   const feed = useGalleryFeedQuery({ city: "Shanghai", range: "24h" });
-  const [likedPosts, setLikedPosts] = useState<Set<string>>(() => new Set());
+  const [likedPosts, setLikedPosts] = useState<Set<string>>(() => {
+    try {
+      return new Set(JSON.parse(window.localStorage.getItem("barlog.community.likedPosts") ?? "[]"));
+    } catch {
+      return new Set();
+    }
+  });
   const [failedImages, setFailedImages] = useState<Set<string>>(() => new Set());
   const like = useMutation({
     mutationFn: (postId: string) => galleryApi.likePost(postId),
@@ -646,6 +653,10 @@ function CommunityFeed() {
     like.mutate(postId);
   };
 
+  useEffect(() => {
+    window.localStorage.setItem("barlog.community.likedPosts", JSON.stringify([...likedPosts]));
+  }, [likedPosts]);
+
   return (
     <>
       <SectionLabel icon={<Sparkles size={17} />} label="COMMUNITY GALLERY" />
@@ -653,7 +664,7 @@ function CommunityFeed() {
       {feed.isError ? <StatusCard tone="error" label={feed.error.message} /> : null}
       <div className="feed-grid">
         {(feed.data?.items ?? []).map((post) => {
-          const liked = likedPosts.has(post.id);
+          const liked = likedPosts.has(post.id) || Boolean(("likedByMe" in post && post.likedByMe) || ("likedByCurrentUser" in post && post.likedByCurrentUser));
           const likeCount = post.likedCount + (liked ? 1 : 0);
           const imageSrc = getCommunityPostImage(post);
           const imageFailed = failedImages.has(post.id);
@@ -705,14 +716,34 @@ function CommunityFeed() {
 
 type CommunityImagePost = {
   cardImageUrl?: string;
+  checkIn?: CommunityImagePost;
+  checkInPhotoUrl?: string;
   generatedCardUri?: string;
   imageUrl?: string;
+  images?: string[];
+  likedByMe?: boolean;
+  likedByCurrentUser?: boolean;
+  mediaUrl?: string;
+  photo?: string;
   photoUrl?: string;
+  photos?: string[];
+  thumbnailUrl?: string;
   uploadedPhotoUrl?: string;
 };
 
-function getCommunityPostImage(post: CommunityImagePost) {
-  return post.imageUrl || post.photoUrl || post.cardImageUrl || post.uploadedPhotoUrl || post.generatedCardUri || "";
+function getCommunityPostImage(post: CommunityImagePost): string {
+  return post.imageUrl ||
+    post.photoUrl ||
+    post.checkInPhotoUrl ||
+    post.mediaUrl ||
+    post.thumbnailUrl ||
+    post.photo ||
+    post.cardImageUrl ||
+    post.uploadedPhotoUrl ||
+    post.generatedCardUri ||
+    post.images?.[0] ||
+    post.photos?.[0] ||
+    (post.checkIn ? getCommunityPostImage(post.checkIn) : "");
 }
 
 function MatchPanel() {
@@ -720,6 +751,14 @@ function MatchPanel() {
   const conversations = useConversationsQuery();
   const [activeCandidate, setActiveCandidate] = useState<MatchCandidate | null>(null);
   const [messageDraft, setMessageDraft] = useState("");
+  const [localMessages, setLocalMessages] = useState<Record<string, string[]>>({});
+  const [savedChatIds, setSavedChatIds] = useState<string[]>(() => {
+    try {
+      return JSON.parse(window.localStorage.getItem("barlog.match.savedChats") ?? "[]");
+    } catch {
+      return [];
+    }
+  });
   const activeConversation = useMemo(() => {
     if (!activeCandidate) {
       return null;
@@ -746,9 +785,37 @@ function MatchPanel() {
       void conversations.refetch();
     }
   });
+  const orderedCandidates = useMemo(() => {
+    const items = candidates.data ?? [];
+    const savedOrder = new Map(savedChatIds.map((id, index) => [id, index]));
+
+    return [...items].sort((first, second) => {
+      const firstSaved = savedOrder.get(first.id);
+      const secondSaved = savedOrder.get(second.id);
+
+      if (firstSaved !== undefined && secondSaved !== undefined) {
+        return firstSaved - secondSaved;
+      }
+      if (firstSaved !== undefined) {
+        return -1;
+      }
+      if (secondSaved !== undefined) {
+        return 1;
+      }
+      return 0;
+    });
+  }, [candidates.data, savedChatIds]);
+  const savedCandidates = savedChatIds
+    .map((id) => (candidates.data ?? []).find((candidate) => candidate.id === id))
+    .filter((candidate): candidate is MatchCandidate => Boolean(candidate));
+
+  useEffect(() => {
+    window.localStorage.setItem("barlog.match.savedChats", JSON.stringify(savedChatIds));
+  }, [savedChatIds]);
 
   const openChat = (candidate: MatchCandidate) => {
     setActiveCandidate(candidate);
+    setSavedChatIds((current) => [candidate.id, ...current.filter((id) => id !== candidate.id)].slice(0, 3));
     if (!conversations.data?.items.some((conversation) => conversation.title.toLowerCase().includes(candidate.displayName.toLowerCase()))) {
       request.mutate(candidate.id);
     }
@@ -756,21 +823,102 @@ function MatchPanel() {
 
   const submitMessage = () => {
     const body = messageDraft.trim();
-    if (!body || !activeConversation) {
+    if (!body || !activeCandidate) {
       return;
     }
 
-    sendMessage.mutate({ body, conversationId: activeConversation.id });
+    if (activeConversation) {
+      sendMessage.mutate({ body, conversationId: activeConversation.id });
+      return;
+    }
+
+    setLocalMessages((current) => ({
+      ...current,
+      [activeCandidate.id]: [...(current[activeCandidate.id] ?? []), body]
+    }));
+    setMessageDraft("");
   };
+
+  if (activeCandidate) {
+    return (
+      <section className="match-chat-page" aria-label={`Chat with ${activeCandidate.displayName}`}>
+        <div className="match-chat-head">
+          <button className="match-chat-back" type="button" onClick={() => setActiveCandidate(null)} aria-label="Back to matches">
+            <ArrowLeft size={16} />
+          </button>
+          <div className="match-chat-person">
+            <div className="match-chat-avatar">
+              {activeCandidate.avatarUrl ? <img src={activeCandidate.avatarUrl} alt="" /> : activeCandidate.displayName.slice(0, 1).toUpperCase()}
+            </div>
+            <span>
+              <strong>{activeCandidate.displayName}</strong>
+              <small>{activeConversation ? "Conversation open" : request.isPending ? "Sending a clink..." : "Clink room"}</small>
+            </span>
+          </div>
+        </div>
+        <div className="match-message-list">
+          {messages.isLoading ? <StatusCard label="Loading messages" /> : null}
+          {messages.isError ? <StatusCard tone="error" label={messages.error.message} /> : null}
+          {activeConversation
+            ? (messages.data?.items ?? []).map((message) => (
+              <p key={message.id} className={message.senderId === activeCandidate.id ? "theirs" : "mine"}>
+                {message.body}
+              </p>
+            ))
+            : null}
+          {(localMessages[activeCandidate.id] ?? []).map((body, index) => (
+            <p key={`${activeCandidate.id}-${index}`} className="mine">{body}</p>
+          ))}
+          {!activeConversation && !(localMessages[activeCandidate.id] ?? []).length ? (
+            <small>{request.isError ? request.error.message : "Clink sent. Start with a low-pressure opener while the match request warms up."}</small>
+          ) : null}
+          {activeConversation && !messages.isLoading && !(messages.data?.items ?? []).length && !(localMessages[activeCandidate.id] ?? []).length ? (
+            <small>No messages yet. Start with a tiny pour.</small>
+          ) : null}
+        </div>
+        <div className="match-chat-compose">
+          <input
+            autoFocus
+            value={messageDraft}
+            onChange={(event) => setMessageDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                submitMessage();
+              }
+            }}
+            placeholder="Send a low-pressure opener..."
+          />
+          <button type="button" disabled={!messageDraft.trim() || sendMessage.isPending} onClick={submitMessage}>
+            <Send size={15} />
+          </button>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <>
       <SectionLabel icon={<Sparkles size={17} />} label="TONIGHT MATCH" />
       {candidates.isLoading ? <StatusCard label="Loading nearby drinking buddies" /> : null}
       {candidates.isError ? <StatusCard tone="error" label={candidates.error.message} /> : null}
+      {savedCandidates.length ? (
+        <section className="match-saved-strip" aria-label="Recent clinks">
+          <strong>RECENT CLINKS</strong>
+          <div>
+            {savedCandidates.map((candidate) => (
+              <button key={candidate.id} type="button" onClick={() => openChat(candidate)}>
+                <span className="match-saved-avatar">
+                  {candidate.avatarUrl ? <img src={candidate.avatarUrl} alt="" /> : candidate.displayName.slice(0, 1).toUpperCase()}
+                </span>
+                {candidate.displayName}
+              </button>
+            ))}
+          </div>
+        </section>
+      ) : null}
       <div className="stack">
-        {(candidates.data ?? []).map((candidate) => (
-          <article className={`match-card ${activeCandidate?.id === candidate.id ? "active" : ""}`} key={candidate.id}>
+        {orderedCandidates.map((candidate) => (
+          <article className="match-card" key={candidate.id}>
             <div className="match-avatar">
               {candidate.avatarUrl ? <img src={candidate.avatarUrl} alt="" /> : candidate.displayName.slice(0, 1).toUpperCase()}
             </div>
@@ -787,51 +935,6 @@ function MatchPanel() {
         ))}
         {!candidates.isLoading && !(candidates.data ?? []).length ? <StatusCard label="No match candidates returned." /> : null}
       </div>
-      {activeCandidate ? (
-        <section className="match-chat-panel">
-          <div className="match-chat-head">
-            <span>
-              <strong>{activeCandidate.displayName}</strong>
-              <small>{activeConversation ? "Conversation open" : request.isPending ? "Sending a clink..." : "Waiting for the clink back"}</small>
-            </span>
-            <button type="button" onClick={() => setActiveCandidate(null)} aria-label="Close chat"><X size={15} /></button>
-          </div>
-          {activeConversation ? (
-            <>
-              {messages.isLoading ? <StatusCard label="Loading messages" /> : null}
-              {messages.isError ? <StatusCard tone="error" label={messages.error.message} /> : null}
-              <div className="match-message-list">
-                {(messages.data?.items ?? []).map((message) => (
-                  <p key={message.id} className={message.senderId === activeCandidate.id ? "theirs" : "mine"}>
-                    {message.body}
-                  </p>
-                ))}
-                {!messages.isLoading && !(messages.data?.items ?? []).length ? <small>No messages yet. Start with a tiny pour.</small> : null}
-              </div>
-              <div className="match-chat-compose">
-                <input
-                  value={messageDraft}
-                  onChange={(event) => setMessageDraft(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") {
-                      submitMessage();
-                    }
-                  }}
-                  placeholder="Send a low-pressure opener..."
-                />
-                <button type="button" disabled={!messageDraft.trim() || sendMessage.isPending} onClick={submitMessage}>
-                  <Send size={15} />
-                </button>
-              </div>
-            </>
-          ) : (
-            <div className="match-chat-waiting">
-              <MessageCircle size={18} />
-              <p>{request.isError ? request.error.message : "Clink sent. When this match opens a conversation, messages will appear here."}</p>
-            </div>
-          )}
-        </section>
-      ) : null}
     </>
   );
 }

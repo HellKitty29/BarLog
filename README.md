@@ -67,6 +67,7 @@ The response should keep the existing frontend shape. The PWA will render `image
     city?: string;
     barName?: string;
     likedCount: number;
+    likedByMe?: boolean;
     createdAt: string;
   }>;
   nextCursor?: string;
@@ -81,7 +82,7 @@ Community likes are sent through:
 POST /api/gallery/posts/{postId}/like
 ```
 
-The PWA updates the visible count optimistically and expects the feed to return the canonical `likedCount` on the next fetch.
+The PWA saves liked post ids locally for immediate persistence across refreshes. The backend should still persist likes per user and return the canonical `likedCount` plus `likedByMe: true` for posts the current user has already liked. `likedByCurrentUser` is also accepted as a transitional alias.
 
 If the backend later needs a stronger relation between a feed post and its source check-in, add an optional `checkInId` or `sourceCheckInId` field deliberately across the API contract. The current frontend does not require that field.
 
