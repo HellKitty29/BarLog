@@ -5,14 +5,18 @@ import {
   ChevronDown,
   ChevronUp,
   Compass,
+  Heart,
   Image,
   LocateFixed,
   LogOut,
   Map as MapIcon,
+  MessageCircle,
   RefreshCw,
   Search,
+  Send,
   Sparkles,
   Star,
+  TestTube2,
   User,
   X
 } from "lucide-react";
@@ -22,12 +26,20 @@ import { authApi } from "@/features/auth/auth.api";
 import { useAuthStore } from "@/features/auth/auth.store";
 import { getLocalSessionUser, saveLocalSessionUser, clearLocalSessionUser } from "@/features/auth/local-session";
 import { useNearbyBarsQuery } from "@/features/bars/bars.queries";
+import { chatApi } from "@/features/chat/chat.api";
+import { useConversationMessagesQuery, useConversationsQuery } from "@/features/chat/chat.queries";
 import { useDiaryCalendarQuery, useDiarySummaryQuery, useRecentSipsQuery } from "@/features/diary/diary.queries";
 import { useGalleryFeedQuery } from "@/features/gallery/gallery.queries";
+import { galleryApi } from "@/features/gallery/gallery.api";
 import { useMatchCandidatesQuery } from "@/features/match/match.queries";
+import { matchApi } from "@/features/match/match.api";
+import type { MatchCandidate } from "@/features/match/match.types";
+import { createDrunkTiResult, drunkTiQuestions, type DrunkTiResult } from "@/features/persona/drunkti";
+import { useDrunkTiStore } from "@/features/persona/drunkti.store";
 import { sipApi } from "@/features/sip/sip.api";
 import { uploadApi } from "@/features/upload/upload.api";
 import { createImageFormData } from "@/features/upload/upload.helpers";
+import { diaryFilterOptions, filterDiaryLogs, getDiaryAnchorDate, getSelectedDiaryDay, type DiaryFilterKey } from "@/web/diary-utils";
 import { clearTokens, setAccessToken, setRefreshToken } from "@/services/storage/token-storage";
 import { createMapRegionForCoordinates, createNearbyBarsParams, defaultDiscoveryCoordinates } from "@/services/location/map-region";
 import { calculateDistanceMeters } from "@/services/location/geo-utils";
@@ -252,19 +264,25 @@ function DiaryScreen() {
   const month = useCurrentMonth();
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [activeFilter, setActiveFilter] = useState<DiaryFilterKey>("all");
+  const [isDrunkTiOpen, setIsDrunkTiOpen] = useState(false);
+  const drunkTiResult = useDrunkTiStore((state) => state.result);
+  const setDrunkTiResult = useDrunkTiStore((state) => state.setResult);
   const summary = useDiarySummaryQuery(month);
   const calendar = useDiaryCalendarQuery(month);
   const recent = useRecentSipsQuery();
   const logs = recent.data?.items ?? [];
-  const visibleLogs = logs.filter((item) => {
-    const text = [item.drinkName, item.barName, item.city, item.vibeMumbling, ...(item.moodTags ?? [])].filter(Boolean).join(" ").toLowerCase();
-    const matchesSearch = search.trim() ? text.includes(search.trim().toLowerCase()) : true;
-    const matchesDate = selectedDate ? dateKey(item.createdAt) === selectedDate : true;
-    return matchesSearch && matchesDate;
-  });
+  const visibleLogs = filterDiaryLogs(logs, { category: activeFilter, search, selectedDate });
 
   return (
     <Screen title="Diary" subtitle="Your personal drinking archive.">
+      <div className="diary-actions">
+        <button className="drunkti-button" type="button" onClick={() => setIsDrunkTiOpen(true)}>
+          <TestTube2 size={14} />
+          DrunkTI
+          {drunkTiResult ? <span>{drunkTiResult.code}</span> : null}
+        </button>
+      </div>
       <div className="stats-grid">
         <Stat label="TOTAL LOGS" value={summary.isLoading ? "..." : String(summary.data?.checkInCount ?? 0)} />
         <Stat label="EXPLORED" value={summary.isLoading ? "..." : String(summary.data?.barsVisited ?? 0)} />
@@ -272,6 +290,8 @@ function DiaryScreen() {
       </div>
       <CalendarStrip
         days={Array.isArray(calendar.data) ? calendar.data : []}
+        isLoading={calendar.isLoading}
+        logs={logs}
         month={month}
         selectedDate={selectedDate}
         onSelectDate={setSelectedDate}
@@ -281,12 +301,32 @@ function DiaryScreen() {
         <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search drinks, bars, or diary notes..." />
         {search ? <button type="button" onClick={() => setSearch("")} aria-label="Clear search"><X size={15} /></button> : null}
       </div>
+      <div className="filter-row" aria-label="Drink filters">
+        {diaryFilterOptions.map((option) => (
+          <button
+            key={option.key}
+            className={activeFilter === option.key ? "active" : ""}
+            type="button"
+            onClick={() => setActiveFilter(option.key)}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
       {recent.isLoading ? <StatusCard label="Loading recent sips" /> : null}
       {recent.isError ? <StatusCard tone="error" label={recent.error.message} /> : null}
       <div className="stack">
         {visibleLogs.map((sip) => <LogCard key={sip.id} sip={sip} />)}
         {!recent.isLoading && !visibleLogs.length ? <StatusCard label="No matching logs returned." /> : null}
       </div>
+      <DrunkTiModal
+        onClose={() => setIsDrunkTiOpen(false)}
+        onSave={(result) => {
+          setDrunkTiResult(result);
+          setIsDrunkTiOpen(false);
+        }}
+        visible={isDrunkTiOpen}
+      />
     </Screen>
   );
 }
@@ -462,7 +502,7 @@ function SipScreen({ onPublished }: { onPublished: () => void }) {
 
   return (
     <Screen title="Sip" subtitle="Shoot, generate, flip, and publish.">
-      <input ref={fileInputRef} className="hidden-input" type="file" accept="image/*" capture="environment" onChange={(event) => chooseFile(event.target.files?.[0])} />
+      <input ref={fileInputRef} className="hidden-input" type="file" accept="image/*" onChange={(event) => chooseFile(event.target.files?.[0])} />
       {!photo ? (
         <section className="capture-panel">
           <div className={`camera-live ${cameraReady ? "is-live" : ""}`}>
@@ -533,12 +573,38 @@ function SipScreen({ onPublished }: { onPublished: () => void }) {
 }
 
 function MeScreen({ user, onLogout }: { user: UserType; onLogout: () => void }) {
+  const drunkTiResult = useDrunkTiStore((state) => state.result);
+
   return (
     <Screen title="Me" subtitle="Profile, settings, and local PWA state.">
       <section className="profile-card">
         <div className="avatar">{user.displayName.slice(0, 1).toUpperCase()}</div>
         <h2>{user.displayName}</h2>
         <p>{user.email ?? "No email returned"}</p>
+        <div className="profile-drunk-ti">
+          {drunkTiResult ? (
+            <>
+              <span>DrunkTI</span>
+              <strong>{drunkTiResult.code} 路 {drunkTiResult.name}</strong>
+              <p>{drunkTiResult.tagline}</p>
+              <div className="profile-drunk-ti-stats">
+                {drunkTiResult.stats.map((stat) => (
+                  <i key={stat.label} style={{ "--stat-color": stat.color, "--stat-value": `${stat.value}%` } as CSSProperties}>
+                    <b>{stat.label}</b>
+                    <em><span /></em>
+                    <small>{stat.value}</small>
+                  </i>
+                ))}
+              </div>
+            </>
+          ) : (
+            <>
+              <span>DrunkTI</span>
+              <strong>Not tested yet</strong>
+              <p>Finish DrunkTI from Diary to show your drinking archetype here.</p>
+            </>
+          )}
+        </div>
       </section>
       <button className="secondary-button" type="button" onClick={onLogout}>
         <LogOut size={16} />
@@ -550,30 +616,152 @@ function MeScreen({ user, onLogout }: { user: UserType; onLogout: () => void }) 
 
 function CommunityFeed() {
   const feed = useGalleryFeedQuery({ city: "Shanghai", range: "24h" });
+  const [likedPosts, setLikedPosts] = useState<Set<string>>(() => new Set());
+  const [failedImages, setFailedImages] = useState<Set<string>>(() => new Set());
+  const like = useMutation({
+    mutationFn: (postId: string) => galleryApi.likePost(postId),
+    onError: (_error, postId) => {
+      setLikedPosts((current) => {
+        const next = new Set(current);
+        if (next.has(postId)) {
+          next.delete(postId);
+        } else {
+          next.add(postId);
+        }
+        return next;
+      });
+    }
+  });
+
+  const toggleLike = (postId: string) => {
+    setLikedPosts((current) => {
+      const next = new Set(current);
+      if (next.has(postId)) {
+        next.delete(postId);
+      } else {
+        next.add(postId);
+      }
+      return next;
+    });
+    like.mutate(postId);
+  };
+
   return (
     <>
       <SectionLabel icon={<Sparkles size={17} />} label="COMMUNITY GALLERY" />
       {feed.isLoading ? <StatusCard label="Loading community feed" /> : null}
       {feed.isError ? <StatusCard tone="error" label={feed.error.message} /> : null}
       <div className="feed-grid">
-        {(feed.data?.items ?? []).map((post) => (
-          <article className="feed-card" key={post.id}>
-            <img src={post.imageUrl} alt={post.caption ?? post.barName ?? "Gallery post"} />
-            <div>
-              <strong>{post.authorName}</strong>
-              <span>{post.barName ?? post.city ?? "Tonight"}</span>
-              {post.caption ? <p>{post.caption}</p> : null}
-            </div>
-          </article>
-        ))}
+        {(feed.data?.items ?? []).map((post) => {
+          const liked = likedPosts.has(post.id);
+          const likeCount = post.likedCount + (liked ? 1 : 0);
+          const imageSrc = getCommunityPostImage(post);
+          const imageFailed = failedImages.has(post.id);
+
+          return (
+            <article className="feed-card" key={post.id}>
+              {imageSrc && !imageFailed ? (
+                <img
+                  className="feed-card-photo"
+                  src={imageSrc}
+                  alt={post.caption ?? post.barName ?? "Check-in photo"}
+                  onError={() => {
+                    setFailedImages((current) => new Set(current).add(post.id));
+                  }}
+                />
+              ) : (
+                <div className="feed-card-photo feed-card-photo-fallback">
+                  <Image size={22} />
+                  <span>Check-in Photo</span>
+                </div>
+              )}
+              <div className="feed-card-body">
+                <div className="feed-card-top">
+                  <span>
+                    <strong>{post.authorName}</strong>
+                    <small>{post.barName ?? post.city ?? "Tonight"}</small>
+                  </span>
+                  <button
+                    aria-label={liked ? "Unlike check-in" : "Like check-in"}
+                    className={liked ? "liked" : ""}
+                    disabled={like.isPending}
+                    onClick={() => toggleLike(post.id)}
+                    type="button"
+                  >
+                    <Heart size={15} fill={liked ? "currentColor" : "none"} />
+                    {likeCount}
+                  </button>
+                </div>
+                {post.caption ? <p>{post.caption}</p> : null}
+              </div>
+            </article>
+          );
+        })}
       </div>
       {!feed.isLoading && !(feed.data?.items ?? []).length ? <StatusCard label="No community posts returned." /> : null}
     </>
   );
 }
 
+type CommunityImagePost = {
+  cardImageUrl?: string;
+  generatedCardUri?: string;
+  imageUrl?: string;
+  photoUrl?: string;
+  uploadedPhotoUrl?: string;
+};
+
+function getCommunityPostImage(post: CommunityImagePost) {
+  return post.imageUrl || post.photoUrl || post.cardImageUrl || post.uploadedPhotoUrl || post.generatedCardUri || "";
+}
+
 function MatchPanel() {
   const candidates = useMatchCandidatesQuery();
+  const conversations = useConversationsQuery();
+  const [activeCandidate, setActiveCandidate] = useState<MatchCandidate | null>(null);
+  const [messageDraft, setMessageDraft] = useState("");
+  const activeConversation = useMemo(() => {
+    if (!activeCandidate) {
+      return null;
+    }
+
+    const candidateName = activeCandidate.displayName.toLowerCase();
+    return (conversations.data?.items ?? []).find((conversation) =>
+      conversation.title.toLowerCase().includes(candidateName)
+    ) ?? null;
+  }, [activeCandidate, conversations.data?.items]);
+  const messages = useConversationMessagesQuery(activeConversation?.id ?? "");
+  const request = useMutation({
+    mutationFn: (candidateId: string) => matchApi.requestMatch(candidateId),
+    onSuccess: () => {
+      void conversations.refetch();
+    }
+  });
+  const sendMessage = useMutation({
+    mutationFn: ({ body, conversationId }: { body: string; conversationId: string }) =>
+      chatApi.sendMessage(conversationId, body),
+    onSuccess: () => {
+      setMessageDraft("");
+      void messages.refetch();
+      void conversations.refetch();
+    }
+  });
+
+  const openChat = (candidate: MatchCandidate) => {
+    setActiveCandidate(candidate);
+    if (!conversations.data?.items.some((conversation) => conversation.title.toLowerCase().includes(candidate.displayName.toLowerCase()))) {
+      request.mutate(candidate.id);
+    }
+  };
+
+  const submitMessage = () => {
+    const body = messageDraft.trim();
+    if (!body || !activeConversation) {
+      return;
+    }
+
+    sendMessage.mutate({ body, conversationId: activeConversation.id });
+  };
 
   return (
     <>
@@ -582,7 +770,7 @@ function MatchPanel() {
       {candidates.isError ? <StatusCard tone="error" label={candidates.error.message} /> : null}
       <div className="stack">
         {(candidates.data ?? []).map((candidate) => (
-          <article className="match-card" key={candidate.id}>
+          <article className={`match-card ${activeCandidate?.id === candidate.id ? "active" : ""}`} key={candidate.id}>
             <div className="match-avatar">
               {candidate.avatarUrl ? <img src={candidate.avatarUrl} alt="" /> : candidate.displayName.slice(0, 1).toUpperCase()}
             </div>
@@ -590,11 +778,60 @@ function MatchPanel() {
               <strong>{candidate.displayName}</strong>
               {candidate.reason ? <span>{candidate.reason}</span> : null}
               {typeof candidate.distanceMeters === "number" ? <small>{formatDistance(candidate.distanceMeters)} away</small> : null}
+              <button className="match-chat-button" type="button" onClick={() => openChat(candidate)}>
+                <MessageCircle size={14} />
+                Clink
+              </button>
             </div>
           </article>
         ))}
         {!candidates.isLoading && !(candidates.data ?? []).length ? <StatusCard label="No match candidates returned." /> : null}
       </div>
+      {activeCandidate ? (
+        <section className="match-chat-panel">
+          <div className="match-chat-head">
+            <span>
+              <strong>{activeCandidate.displayName}</strong>
+              <small>{activeConversation ? "Conversation open" : request.isPending ? "Sending a clink..." : "Waiting for the clink back"}</small>
+            </span>
+            <button type="button" onClick={() => setActiveCandidate(null)} aria-label="Close chat"><X size={15} /></button>
+          </div>
+          {activeConversation ? (
+            <>
+              {messages.isLoading ? <StatusCard label="Loading messages" /> : null}
+              {messages.isError ? <StatusCard tone="error" label={messages.error.message} /> : null}
+              <div className="match-message-list">
+                {(messages.data?.items ?? []).map((message) => (
+                  <p key={message.id} className={message.senderId === activeCandidate.id ? "theirs" : "mine"}>
+                    {message.body}
+                  </p>
+                ))}
+                {!messages.isLoading && !(messages.data?.items ?? []).length ? <small>No messages yet. Start with a tiny pour.</small> : null}
+              </div>
+              <div className="match-chat-compose">
+                <input
+                  value={messageDraft}
+                  onChange={(event) => setMessageDraft(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      submitMessage();
+                    }
+                  }}
+                  placeholder="Send a low-pressure opener..."
+                />
+                <button type="button" disabled={!messageDraft.trim() || sendMessage.isPending} onClick={submitMessage}>
+                  <Send size={15} />
+                </button>
+              </div>
+            </>
+          ) : (
+            <div className="match-chat-waiting">
+              <MessageCircle size={18} />
+              <p>{request.isError ? request.error.message : "Clink sent. When this match opens a conversation, messages will appear here."}</p>
+            </div>
+          )}
+        </section>
+      ) : null}
     </>
   );
 }
@@ -668,10 +905,32 @@ function Stat({ label, value }: { label: string; value: string }) {
   return <div className="stat-card"><Sparkles size={16} /><strong>{value}</strong><span>{label}</span></div>;
 }
 
-function CalendarStrip({ days, month, onSelectDate, selectedDate }: { days: { date: string; count: number }[]; month: string; onSelectDate: (date: string | null) => void; selectedDate: string | null }) {
+function CalendarStrip({
+  days,
+  isLoading,
+  logs,
+  month,
+  onSelectDate,
+  selectedDate
+}: {
+  days: { date: string; count: number }[];
+  isLoading: boolean;
+  logs: CheckIn[];
+  month: string;
+  onSelectDate: (date: string | null) => void;
+  selectedDate: string | null;
+}) {
   const monthDate = new Date(`${month}-01T12:00:00`);
   const daysInMonth = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0).getDate();
   const countByDate = new Map(days.map((day) => [day.date, day.count]));
+  const anchorDate = getDiaryAnchorDate(month);
+  const selectedDay = getSelectedDiaryDay(logs, selectedDate, countByDate);
+  const anchorRef = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    anchorRef.current?.scrollIntoView({ block: "nearest", inline: "center" });
+  }, [anchorDate, daysInMonth]);
+
   return (
     <section className="calendar-card">
       <strong>{monthDate.toLocaleDateString("en-US", { month: "long", year: "numeric" }).toUpperCase()} DRINKING DAYS</strong>
@@ -681,10 +940,116 @@ function CalendarStrip({ days, month, onSelectDate, selectedDate }: { days: { da
           const date = `${month}-${String(day).padStart(2, "0")}`;
           const selected = selectedDate === date;
           const hasLog = (countByDate.get(date) ?? 0) > 0;
-          return <button key={date} className={`${hasLog ? "has-log" : ""} ${selected ? "selected" : ""}`} type="button" onClick={() => onSelectDate(selected ? null : date)}><span />{day}</button>;
+          return (
+            <button
+              key={date}
+              ref={date === anchorDate ? anchorRef : null}
+              className={`${hasLog ? "has-log" : ""} ${selected ? "selected" : ""}`}
+              type="button"
+              onClick={() => onSelectDate(selected ? null : date)}
+            >
+              <span />
+              {day}
+              {selected ? <em>DAY {day}</em> : null}
+            </button>
+          );
         })}
       </div>
+      {isLoading ? <p className="calendar-loading">Loading monthly knots...</p> : null}
+      {selectedDay ? (
+        <article className="day-info-card">
+          <div className="day-info-top">
+            <div>
+              <i />
+              <strong>{selectedDay.dateLabel}</strong>
+              <span>LOCKED</span>
+            </div>
+            <b>{getDrinkEmoji("beer")} GOT {selectedDay.count} DRINKS</b>
+          </div>
+          <hr />
+          {selectedDay.logs.length ? (
+            selectedDay.logs.slice(0, 4).map((sip) => (
+              <div className="day-drink-row" key={sip.id}>
+                <span>{getDrinkEmoji(sip.drinkCategory)}</span>
+                <strong>{sip.drinkName}</strong>
+                <em>@{sip.barName ?? sip.area ?? sip.city ?? "Unknown"}</em>
+              </div>
+            ))
+          ) : (
+            <p className="day-info-empty">No logs returned for this date yet.</p>
+          )}
+          <small>Click day again to unlock</small>
+        </article>
+      ) : null}
     </section>
+  );
+}
+
+function DrunkTiModal({
+  onClose,
+  onSave,
+  visible
+}: {
+  onClose: () => void;
+  onSave: (result: DrunkTiResult) => void;
+  visible: boolean;
+}) {
+  const [step, setStep] = useState(0);
+  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const currentQuestion = drunkTiQuestions[step];
+  const progress = ((step + 1) / drunkTiQuestions.length) * 100;
+
+  if (!visible) {
+    return null;
+  }
+
+  const choose = (axis: string, value: string) => {
+    const nextAnswers = { ...answers, [axis]: value };
+    setAnswers(nextAnswers);
+
+    if (step < drunkTiQuestions.length - 1) {
+      setStep((current) => current + 1);
+      return;
+    }
+
+    onSave(createDrunkTiResult(nextAnswers));
+    setStep(0);
+    setAnswers({});
+  };
+
+  const close = () => {
+    setStep(0);
+    setAnswers({});
+    onClose();
+  };
+
+  return (
+    <div className="modal-scrim" role="dialog" aria-modal="true" aria-label="DrunkTI test">
+      <section className="drunkti-modal">
+        <div className="modal-topbar">
+          <strong>DRINKING MBTI TEST</strong>
+          <button type="button" onClick={close} aria-label="Close DrunkTI"><X size={17} /></button>
+        </div>
+        <div className="progress-track">
+          <span style={{ width: `${progress}%` }} />
+        </div>
+        <div className="question-block">
+          <span>STEP {step + 1} OF {drunkTiQuestions.length}</span>
+          <h2>{currentQuestion.text}</h2>
+        </div>
+        <div className="answer-list">
+          {currentQuestion.options.map((option, index) => (
+            <button key={option.value} className="answer-card" type="button" onClick={() => choose(currentQuestion.axis, option.value)}>
+              <b>{index === 0 ? "A" : "B"}</b>
+              <span>
+                <strong>{option.title}</strong>
+                <small>{option.subtitle}</small>
+              </span>
+            </button>
+          ))}
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -700,6 +1065,23 @@ function LogCard({ sip }: { sip: CheckIn }) {
       <b>{sip.rating?.toFixed(1) ?? "-"}</b>
     </article>
   );
+}
+
+function getDrinkEmoji(category: string) {
+  if (category === "beer") {
+    return "🍺";
+  }
+  if (category === "wine") {
+    return "🍷";
+  }
+  if (category === "whisky") {
+    return "🥃";
+  }
+  if (category === "sake") {
+    return "🍶";
+  }
+
+  return "🍸";
 }
 
 function DrinkIcon({ name, type }: { name: string; type: string }) {
@@ -870,15 +1252,6 @@ function stopCamera(stream: MediaStream | null) {
 function useCurrentMonth() {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-}
-
-function dateKey(value?: string) {
-  if (!value) {
-    return "";
-  }
-
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? value.slice(0, 10) : parsed.toISOString().slice(0, 10);
 }
 
 function formatShortDate(value: string) {

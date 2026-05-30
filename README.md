@@ -1,4 +1,4 @@
-# BarLog Mobile
+# BarLog WEB APP
 
 ### All alcoholists welcome to your Hole! Just Dig your private obssesion here, meet someone with your burning ethanol heart.
 
@@ -48,13 +48,13 @@ demo@barlog.app / password123
 
 ## Community / Gallery Backend Reminder
 
-The mobile app treats Community and Gallery as the same feed. Both screens read:
+The mobile app and PWA treat Community and Gallery as the same feed. Both screens read:
 
 ```text
 GET /api/gallery/feed?city=Shanghai&range=24h
 ```
 
-The response should keep the existing frontend shape:
+The response should keep the existing frontend shape. The PWA will render `imageUrl` first, but also accepts `photoUrl`, `cardImageUrl`, `uploadedPhotoUrl`, or `generatedCardUri` as fallback image fields for check-in style posts:
 
 ```ts
 {
@@ -75,4 +75,41 @@ The response should keep the existing frontend shape:
 
 For the real backend, public or `tonight_only` check-ins should be projected into this feed after `POST /api/checkins`. A practical mapping is `imageUrl = cardImageUrl ?? photoUrl`, `caption = vibeMumbling`, plus `barName`, `city`, `userId`, `authorName`, `createdAt`, and `likedCount`.
 
+Community likes are sent through:
+
+```text
+POST /api/gallery/posts/{postId}/like
+```
+
+The PWA updates the visible count optimistically and expects the feed to return the canonical `likedCount` on the next fetch.
+
 If the backend later needs a stronger relation between a feed post and its source check-in, add an optional `checkInId` or `sourceCheckInId` field deliberately across the API contract. The current frontend does not require that field.
+
+## Match / Chat Backend Reminder
+
+The PWA Match tab reads drink buddy candidates from:
+
+```text
+GET /api/match/candidates
+POST /api/match/request
+```
+
+Each candidate card now exposes a `Clink` chat action. The UI first tries to match a candidate name against existing conversations:
+
+```text
+GET /api/chat/conversations
+GET /api/chat/conversations/{conversationId}/messages
+POST /api/chat/conversations/{conversationId}/messages
+POST /api/chat/conversations/{conversationId}/read
+```
+
+If no conversation exists yet, the PWA sends `POST /api/match/request` and shows a waiting state until a conversation appears. A future backend improvement can make `POST /api/match/request` return `{ conversationId }` when a chat is immediately created.
+
+## PWA UX Notes
+
+- Diary calendar opens centered on today and hides horizontal scrollbars while preserving swipe.
+- Tapping a diary day shows a compact locked day detail card with check-in count and drinks for that date.
+- Diary search combines text, date, and drink filters such as `Cocktail`, `Brew`, and `Wine`.
+- The Sip `Upload` button opens the photo library/file picker; the separate `Camera` button handles live capture.
+- DrunkTI starts from Diary and stores the result in the existing Me profile card.
+- The splash cocktail has a progress-driven teal aura behind the glass, scaling from 0.65 to 1.35 while fading from 0.15 to 1 opacity.
