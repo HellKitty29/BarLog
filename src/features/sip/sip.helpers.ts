@@ -8,7 +8,7 @@ export function draftToCreateCheckInPayload(draft: SipDraft): CreateCheckInPaylo
 
   return {
     photoUrl: draft.uploadedPhotoUrl,
-    cardImageUrl: draft.uploadedCardUrl,
+    cardImageUrl: draft.uploadedCardUrl ?? draft.uploadedPhotoUrl,
     drinkName: draft.drinkName,
     drinkCategory: draft.drinkCategory,
     barId: draft.barId,

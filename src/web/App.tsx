@@ -40,6 +40,7 @@ import { useDrunkTiStore } from "@/features/persona/drunkti.store";
 import { sipApi } from "@/features/sip/sip.api";
 import { uploadApi } from "@/features/upload/upload.api";
 import { createImageFormData } from "@/features/upload/upload.helpers";
+import { resolveMediaUrl } from "@/services/media/resolve-media-url";
 import { diaryFilterOptions, filterDiaryLogs, getDiaryAnchorDate, getSelectedDiaryDay, type DiaryFilterKey } from "@/web/diary-utils";
 import { clearTokens, setAccessToken, setRefreshToken } from "@/services/storage/token-storage";
 import { createMapRegionForCoordinates, createNearbyBarsParams, defaultDiscoveryCoordinates } from "@/services/location/map-region";
@@ -409,10 +410,15 @@ function SipScreen({ onPublished }: { onPublished: () => void }) {
       if (!photo) {
         throw new Error("Take or upload a photo before publishing.");
       }
-      const upload = await uploadApi.uploadImage(createImageFormData(photo.blob, "sip.jpg", photo.blob.type || "image/jpeg"));
+      const formData = createImageFormData(photo.blob, "sip.jpg", photo.blob.type || "image/jpeg");
+      const [photoUpload, cardUpload] = await Promise.all([
+        uploadApi.uploadImage(formData),
+        uploadApi.uploadCardImage(createImageFormData(photo.blob, "sip-card.jpg", photo.blob.type || "image/jpeg"))
+      ]);
       const draft: SipDraft = {
         localPhotoUri: photo.url,
-        uploadedPhotoUrl: upload.imageUrl,
+        uploadedPhotoUrl: photoUpload.imageUrl,
+        uploadedCardUrl: cardUpload.imageUrl,
         drinkName: drinkName.trim() || "Tonight's Sip",
         drinkCategory: category,
         barName: barName.trim() || undefined,
@@ -420,11 +426,12 @@ function SipScreen({ onPublished }: { onPublished: () => void }) {
         rating: clampRating(rating),
         vibeMumbling: note.trim() || undefined,
         cardStyle: "receipt",
-        visibility: "private",
+        visibility: "tonight_only",
         socialStatus: "not_social"
       };
       return sipApi.createCheckIn({
         photoUrl: draft.uploadedPhotoUrl!,
+        cardImageUrl: draft.uploadedCardUrl,
         drinkName: draft.drinkName!,
         drinkCategory: draft.drinkCategory!,
         barName: draft.barName,
@@ -732,7 +739,7 @@ type CommunityImagePost = {
 };
 
 function getCommunityPostImage(post: CommunityImagePost): string {
-  return post.imageUrl ||
+  const raw = post.imageUrl ||
     post.photoUrl ||
     post.checkInPhotoUrl ||
     post.mediaUrl ||
@@ -744,14 +751,17 @@ function getCommunityPostImage(post: CommunityImagePost): string {
     post.images?.[0] ||
     post.photos?.[0] ||
     (post.checkIn ? getCommunityPostImage(post.checkIn) : "");
+
+  return resolveMediaUrl(raw);
 }
 
 function MatchPanel() {
+  const user = useAuthStore((state) => state.user);
   const candidates = useMatchCandidatesQuery();
   const conversations = useConversationsQuery();
   const [activeCandidate, setActiveCandidate] = useState<MatchCandidate | null>(null);
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [messageDraft, setMessageDraft] = useState("");
-  const [localMessages, setLocalMessages] = useState<Record<string, string[]>>({});
   const [savedChatIds, setSavedChatIds] = useState<string[]>(() => {
     try {
       return JSON.parse(window.localStorage.getItem("barlog.match.savedChats") ?? "[]");
@@ -759,20 +769,11 @@ function MatchPanel() {
       return [];
     }
   });
-  const activeConversation = useMemo(() => {
-    if (!activeCandidate) {
-      return null;
-    }
-
-    const candidateName = activeCandidate.displayName.toLowerCase();
-    return (conversations.data?.items ?? []).find((conversation) =>
-      conversation.title.toLowerCase().includes(candidateName)
-    ) ?? null;
-  }, [activeCandidate, conversations.data?.items]);
-  const messages = useConversationMessagesQuery(activeConversation?.id ?? "");
-  const request = useMutation({
-    mutationFn: (candidateId: string) => matchApi.requestMatch(candidateId),
-    onSuccess: () => {
+  const messages = useConversationMessagesQuery(activeConversationId ?? "");
+  const connect = useMutation({
+    mutationFn: (userId: string) => matchApi.connect(userId),
+    onSuccess: (result) => {
+      setActiveConversationId(result.conversationId);
       void conversations.refetch();
     }
   });
@@ -816,63 +817,74 @@ function MatchPanel() {
   const openChat = (candidate: MatchCandidate) => {
     setActiveCandidate(candidate);
     setSavedChatIds((current) => [candidate.id, ...current.filter((id) => id !== candidate.id)].slice(0, 3));
-    if (!conversations.data?.items.some((conversation) => conversation.title.toLowerCase().includes(candidate.displayName.toLowerCase()))) {
-      request.mutate(candidate.id);
-    }
+    setActiveConversationId(null);
+    setMessageDraft("");
+    connect.mutate(candidate.id);
   };
 
   const submitMessage = () => {
     const body = messageDraft.trim();
-    if (!body || !activeCandidate) {
+    if (!body || !activeConversationId) {
       return;
     }
 
-    if (activeConversation) {
-      sendMessage.mutate({ body, conversationId: activeConversation.id });
-      return;
-    }
-
-    setLocalMessages((current) => ({
-      ...current,
-      [activeCandidate.id]: [...(current[activeCandidate.id] ?? []), body]
-    }));
-    setMessageDraft("");
+    sendMessage.mutate({ body, conversationId: activeConversationId });
   };
 
   if (activeCandidate) {
     return (
       <section className="match-chat-page" aria-label={`Chat with ${activeCandidate.displayName}`}>
         <div className="match-chat-head">
-          <button className="match-chat-back" type="button" onClick={() => setActiveCandidate(null)} aria-label="Back to matches">
+          <button
+            className="match-chat-back"
+            type="button"
+            onClick={() => {
+              setActiveCandidate(null);
+              setActiveConversationId(null);
+              setMessageDraft("");
+            }}
+            aria-label="Back to matches"
+          >
             <ArrowLeft size={16} />
           </button>
           <div className="match-chat-person">
             <div className="match-chat-avatar">
-              {activeCandidate.avatarUrl ? <img src={activeCandidate.avatarUrl} alt="" /> : activeCandidate.displayName.slice(0, 1).toUpperCase()}
+              {activeCandidate.avatarUrl ? <img src={resolveMediaUrl(activeCandidate.avatarUrl)} alt="" /> : activeCandidate.displayName.slice(0, 1).toUpperCase()}
             </div>
             <span>
               <strong>{activeCandidate.displayName}</strong>
-              <small>{activeConversation ? "Conversation open" : request.isPending ? "Sending a clink..." : "Clink room"}</small>
+              <small>
+                {activeConversationId
+                  ? "Conversation open"
+                  : connect.isPending
+                    ? "Opening chat..."
+                    : connect.isError
+                      ? "Unable to start chat"
+                      : "Clink room"}
+              </small>
             </span>
           </div>
         </div>
         <div className="match-message-list">
           {messages.isLoading ? <StatusCard label="Loading messages" /> : null}
           {messages.isError ? <StatusCard tone="error" label={messages.error.message} /> : null}
-          {activeConversation
+          {activeConversationId
             ? (messages.data?.items ?? []).map((message) => (
-              <p key={message.id} className={message.senderId === activeCandidate.id ? "theirs" : "mine"}>
+              <p key={message.id} className={message.senderId === user?.id ? "mine" : "theirs"}>
                 {message.body}
               </p>
             ))
             : null}
-          {(localMessages[activeCandidate.id] ?? []).map((body, index) => (
-            <p key={`${activeCandidate.id}-${index}`} className="mine">{body}</p>
-          ))}
-          {!activeConversation && !(localMessages[activeCandidate.id] ?? []).length ? (
-            <small>{request.isError ? request.error.message : "Clink sent. Start with a low-pressure opener while the match request warms up."}</small>
+          {!activeConversationId ? (
+            <small>
+              {connect.isError
+                ? connect.error instanceof Error
+                  ? connect.error.message
+                  : "Unable to start chat."
+                : "Opening a direct chat with this match..."}
+            </small>
           ) : null}
-          {activeConversation && !messages.isLoading && !(messages.data?.items ?? []).length && !(localMessages[activeCandidate.id] ?? []).length ? (
+          {activeConversationId && !messages.isLoading && !(messages.data?.items ?? []).length ? (
             <small>No messages yet. Start with a tiny pour.</small>
           ) : null}
         </div>
@@ -888,7 +900,7 @@ function MatchPanel() {
             }}
             placeholder="Send a low-pressure opener..."
           />
-          <button type="button" disabled={!messageDraft.trim() || sendMessage.isPending} onClick={submitMessage}>
+          <button type="button" disabled={!messageDraft.trim() || !activeConversationId || sendMessage.isPending} onClick={submitMessage}>
             <Send size={15} />
           </button>
         </div>
@@ -908,7 +920,7 @@ function MatchPanel() {
             {savedCandidates.map((candidate) => (
               <button key={candidate.id} type="button" onClick={() => openChat(candidate)}>
                 <span className="match-saved-avatar">
-                  {candidate.avatarUrl ? <img src={candidate.avatarUrl} alt="" /> : candidate.displayName.slice(0, 1).toUpperCase()}
+                  {candidate.avatarUrl ? <img src={resolveMediaUrl(candidate.avatarUrl)} alt="" /> : candidate.displayName.slice(0, 1).toUpperCase()}
                 </span>
                 {candidate.displayName}
               </button>
@@ -920,12 +932,20 @@ function MatchPanel() {
         {orderedCandidates.map((candidate) => (
           <article className="match-card" key={candidate.id}>
             <div className="match-avatar">
-              {candidate.avatarUrl ? <img src={candidate.avatarUrl} alt="" /> : candidate.displayName.slice(0, 1).toUpperCase()}
+              {candidate.avatarUrl ? (
+                <img src={resolveMediaUrl(candidate.avatarUrl)} alt="" />
+              ) : (
+                candidate.displayName.slice(0, 1).toUpperCase()
+              )}
             </div>
             <div>
               <strong>{candidate.displayName}</strong>
               {candidate.reason ? <span>{candidate.reason}</span> : null}
-              {typeof candidate.distanceMeters === "number" ? <small>{formatDistance(candidate.distanceMeters)} away</small> : null}
+              {candidate.hasTodayCheckIn ? (
+                <small>Checked in tonight</small>
+              ) : typeof candidate.distanceMeters === "number" ? (
+                <small>{formatDistance(candidate.distanceMeters)} away</small>
+              ) : null}
               <button className="match-chat-button" type="button" onClick={() => openChat(candidate)}>
                 <MessageCircle size={14} />
                 Clink

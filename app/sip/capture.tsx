@@ -60,10 +60,18 @@ export default function SipCaptureScreen() {
         updateDraft({ uploadedPhotoUrl });
       }
 
+      let uploadedCardUrl = currentDraft.uploadedCardUrl;
+      if (!uploadedCardUrl && currentDraft.localPhotoUri) {
+        const cardUpload = await uploadApi.uploadCardImage(createImageFormData(currentDraft.localPhotoUri));
+        uploadedCardUrl = cardUpload.imageUrl;
+        updateDraft({ uploadedCardUrl });
+      }
+
       return sipApi.createCheckIn(
         draftToCreateCheckInPayload({
           ...currentDraft,
-          uploadedPhotoUrl
+          uploadedPhotoUrl,
+          uploadedCardUrl
         })
       );
     },
@@ -140,7 +148,7 @@ export default function SipCaptureScreen() {
       rating: parseRating(rating),
       vibeMumbling: note,
       cardStyle: "receipt",
-      visibility: "private",
+      visibility: "tonight_only",
       socialStatus: "not_social"
     });
     generationTimerRef.current = setTimeout(() => {
@@ -165,7 +173,7 @@ export default function SipCaptureScreen() {
       rating: parseRating(rating),
       vibeMumbling: note.trim() || undefined,
       cardStyle: "receipt" as const,
-      visibility: "private" as const,
+      visibility: "tonight_only" as const,
       socialStatus: "not_social" as const
     };
 
