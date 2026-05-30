@@ -4,7 +4,7 @@ import type { SipDraft } from "@/types/domain";
 const initialDraft: SipDraft = {
   moodTags: [],
   cardStyle: "receipt",
-  visibility: "private",
+  visibility: "tonight_only",
   socialStatus: "not_social"
 };
 

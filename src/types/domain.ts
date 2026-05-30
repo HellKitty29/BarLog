@@ -108,6 +108,9 @@ export type Conversation = {
   lastMessage?: string;
   unreadCount: number;
   updatedAt: string;
+  peerUserId?: string;
+  peerDisplayName?: string;
+  peerAvatarUrl?: string;
 };
 
 export type ChatMessage = {

@@ -7,7 +7,11 @@ export const endpoints = {
     refresh: "/api/auth/refresh"
   },
   uploads: {
-    image: "/api/uploads/image"
+    image: "/api/uploads/image",
+    card: "/api/uploads/card"
+  },
+  sipCards: {
+    detail: (checkInId: string) => `/api/sip-cards/${checkInId}`
   },
   checkins: {
     create: "/api/checkins",
@@ -36,6 +40,7 @@ export const endpoints = {
     session: "/api/match/session",
     answer: "/api/match/answer",
     candidates: "/api/match/candidates",
+    connect: "/api/match/connect",
     request: "/api/match/request",
     respond: "/api/match/respond"
   },
