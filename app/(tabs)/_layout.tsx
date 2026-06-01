@@ -20,21 +20,14 @@ export default function TabsLayout() {
       }}
     >
       <Tabs.Screen
-        name="diary"
+        name="discover"
         options={{
-          title: "Diary",
-          tabBarIcon: ({ color, size }) => <Ionicons color={color} name="book-outline" size={size} />
+          title: "Discover",
+          tabBarIcon: ({ color, size }) => <Ionicons color={color} name="compass-outline" size={size} />
         }}
       />
       <Tabs.Screen
-        name="map"
-        options={{
-          title: "Map",
-          tabBarIcon: ({ color, size }) => <Ionicons color={color} name="map-outline" size={size} />
-        }}
-      />
-      <Tabs.Screen
-        name="sip"
+        name="check-in"
         listeners={{
           tabPress: (event) => {
             event.preventDefault();
@@ -42,7 +35,7 @@ export default function TabsLayout() {
           }
         }}
         options={{
-          title: "Sip",
+          title: "Check-in",
           tabBarButton: ({ onPress, accessibilityState, accessibilityLabel, testID }) => {
             const selected = accessibilityState?.selected;
 
@@ -64,12 +57,22 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
+        name="clink"
+        options={{
+          title: "Clink",
+          tabBarIcon: ({ color, size }) => <Ionicons color={color} name="chatbubbles-outline" size={size} />
+        }}
+      />
+      <Tabs.Screen
         name="me"
         options={{
           title: "Me",
           tabBarIcon: ({ color, size }) => <Ionicons color={color} name="person-outline" size={size} />
         }}
       />
+      <Tabs.Screen name="diary" options={{ href: null }} />
+      <Tabs.Screen name="map" options={{ href: null }} />
+      <Tabs.Screen name="sip" options={{ href: null }} />
     </Tabs>
   );
 }

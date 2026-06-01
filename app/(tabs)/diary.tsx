@@ -16,7 +16,7 @@ import { useCurrentMonth } from "@/hooks/useCurrentMonth";
 import { colors, spacing, typography } from "@/theme";
 import type { CheckIn } from "@/types/domain";
 
-export default function DiaryScreen() {
+export default function DiaryScreen({ beforeContent }: { beforeContent?: ReactNode } = {}) {
   const currentMonth = useCurrentMonth();
   const [month, setMonth] = useState(currentMonth);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
@@ -55,6 +55,7 @@ export default function DiaryScreen() {
 
   return (
     <ScrollScreen>
+      {beforeContent}
       <View style={styles.diaryHeader}>
         <AppHeader title="Diary" subtitle="Your personal drinking archive." />
         <Pressable onPress={() => setIsDrunkTiOpen(true)} style={({ pressed }) => [styles.drunkTiButton, pressed && styles.pressed]}>

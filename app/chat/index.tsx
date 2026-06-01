@@ -1,4 +1,5 @@
 import { Pressable, Text, StyleSheet } from "react-native";
+import type { ReactNode } from "react";
 import { Link } from "expo-router";
 import { AppCard } from "@/components/common/AppCard";
 import { AppHeader } from "@/components/common/AppHeader";
@@ -8,11 +9,12 @@ import { ScrollScreen } from "@/components/layout/ScrollScreen";
 import { useConversationsQuery } from "@/features/chat/chat.queries";
 import { colors, typography } from "@/theme";
 
-export default function ChatIndexScreen() {
+export default function ChatIndexScreen({ beforeContent }: { beforeContent?: ReactNode }) {
   const conversations = useConversationsQuery();
 
   return (
     <ScrollScreen>
+      {beforeContent}
       <AppHeader title="Chats" />
       {conversations.isLoading ? <LoadingView /> : null}
       {conversations.isError ? <ErrorState message={conversations.error.message} /> : null}

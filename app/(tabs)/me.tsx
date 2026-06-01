@@ -1,16 +1,25 @@
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
+import { useState } from "react";
 import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
 import { AppCard } from "@/components/common/AppCard";
+import { AppSegmentedControl } from "@/components/common/AppSegmentedControl";
 import { ScrollScreen } from "@/components/layout/ScrollScreen";
 import { clearLocalSessionUser, saveLocalSessionUser } from "@/features/auth/local-session";
 import { useAuthStore } from "@/features/auth/auth.store";
 import type { DrunkTiResult } from "@/features/persona/drunkti";
 import { useDrunkTiStore } from "@/features/persona/drunkti.store";
 import { clearTokens } from "@/services/storage/token-storage";
+import DiaryScreen from "./diary";
+
+const meTabs = [
+  { key: "profile", label: "Profile" },
+  { key: "diary", label: "Diary" }
+] as const;
 
 export default function MeScreen() {
+  const [tab, setTab] = useState("profile");
   const user = useAuthStore((state) => state.user);
   const setUser = useAuthStore((state) => state.setUser);
   const drunkTiResult = useDrunkTiStore((state) => state.result);
@@ -55,8 +64,15 @@ export default function MeScreen() {
     ]);
   };
 
+  const segmentedControl = <AppSegmentedControl segments={meTabs} value={tab} onChange={setTab} />;
+
+  if (tab === "diary") {
+    return <DiaryScreen beforeContent={segmentedControl} />;
+  }
+
   return (
     <ScrollScreen>
+      {segmentedControl}
       <LinearGradient colors={["#2d0907", "#1b1110"]} style={styles.hero}>
         <View style={styles.heroGlow} />
         <View style={styles.avatar}>

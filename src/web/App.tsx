@@ -1,16 +1,16 @@
-import {
+﻿import {
   AlertCircle,
   ArrowLeft,
-  BookOpen,
   Camera,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   ChevronUp,
   Compass,
   Heart,
   Image,
   LocateFixed,
   LogOut,
-  Map as MapIcon,
   MapPin,
   MessageCircle,
   RefreshCw,
@@ -50,15 +50,60 @@ import { calculateDistanceMeters } from "@/services/location/geo-utils";
 import type { Bar, CheckIn, DrinkCategory, SipDraft, User as UserType } from "@/types/domain";
 import { formatDistance, formatRating } from "@/utils/format";
 
-type TabKey = "diary" | "map" | "sip" | "me";
-type DiscoverMode = "bars" | "community" | "match";
+type MainTabKey = "discover" | "check-in" | "clink" | "me";
+type DiscoverMode = "gallery" | "bars";
+type MeMode = "profile" | "diary";
 type DiaryStatFilter = "all" | "bar" | "rating" | null;
 type Coordinates = { lat: number; lng: number };
 
 const drinkCategories: DrinkCategory[] = ["cocktail", "whisky", "wine", "beer", "other"];
 
+type BarAdSlide = {
+  id: string;
+  title: string;
+  kicker: string;
+  copy: string;
+  cta: string;
+  imageUrl?: string;
+  isBoozerMap?: boolean;
+};
+
+const barAdSlides: BarAdSlide[] = [
+  {
+    id: "boozer-map",
+    title: "酒鬼地图",
+    kicker: "CITY CRAWL ROUTES",
+    copy: "Pick a route, light up every checkpoint, and make tonight feel like a tiny expedition.",
+    cta: "Open route",
+    isBoozerMap: true
+  },
+  {
+    id: "cocktail-hour",
+    title: "Golden Hour Guest Shift",
+    kicker: "FRI 9PM · COCKTAIL BAR",
+    copy: "Guest bartenders, citrus highballs, and two rounds made for the first table.",
+    cta: "Save event",
+    imageUrl: "https://images.pexels.com/photos/2209519/pexels-photo-2209519.jpeg?auto=compress&cs=tinysrgb&w=900"
+  },
+  {
+    id: "vinyl-night",
+    title: "Vinyl & Negroni Night",
+    kicker: "SAT 10PM · LISTENING BAR",
+    copy: "Classic aperitivo drinks with a late-night vinyl set and a low-lit booth list.",
+    cta: "View lineup",
+    imageUrl: "https://images.pexels.com/photos/1850595/pexels-photo-1850595.jpeg?auto=compress&cs=tinysrgb&w=900"
+  }
+];
+
+const boozerMapPoints = [
+  { id: "aperitif", label: "Aperitif", left: 18, top: 72 },
+  { id: "highball", label: "Highball", left: 38, top: 48 },
+  { id: "jazz", label: "Jazz", left: 58, top: 62 },
+  { id: "nightcap", label: "Nightcap", left: 78, top: 30 }
+] as const;
+
 export function App() {
-  const [tab, setTab] = useState<TabKey>("diary");
+  const [tab, setTab] = useState<MainTabKey>("discover");
   const [splashProgress, setSplashProgress] = useState(0);
   const [isSplashMounted, setIsSplashMounted] = useState(true);
   const [isSplashFading, setIsSplashFading] = useState(false);
@@ -105,16 +150,16 @@ export function App() {
   if (!user) {
     return <LoginScreen onAuthed={(nextUser) => {
       setUser(nextUser);
-      setTab("diary");
+      setTab("discover");
     }} />;
   }
 
   return (
     <div className="app-shell">
       <main className="phone-frame">
-        {tab === "diary" ? <DiaryScreen /> : null}
-        {tab === "map" ? <DiscoverScreen /> : null}
-        {tab === "sip" ? <SipScreen onPublished={() => setTab("diary")} /> : null}
+        {tab === "discover" ? <DiscoverScreen /> : null}
+        {tab === "check-in" ? <SipScreen onPublished={() => setTab("me")} /> : null}
+        {tab === "clink" ? <ClinkScreen /> : null}
         {tab === "me" ? <MeScreen user={user} onLogout={async () => {
           await clearTokens();
           await clearLocalSessionUser();
@@ -122,11 +167,11 @@ export function App() {
         }} /> : null}
       </main>
       <nav className="tabbar" aria-label="Main navigation">
-        <TabButton active={tab === "diary"} icon={<BookOpen />} label="Diary" onClick={() => setTab("diary")} />
-        <TabButton active={tab === "map"} icon={<MapIcon />} label="Map" onClick={() => setTab("map")} />
-        <button className="sip-tab" type="button" aria-label="Open camera check-in" onClick={() => setTab("sip")}>
+        <TabButton active={tab === "discover"} icon={<Compass />} label="Discover" onClick={() => setTab("discover")} />
+        <button className="sip-tab" type="button" aria-label="Open camera check-in" onClick={() => setTab("check-in")}>
           <Camera />
         </button>
+        <TabButton active={tab === "clink"} icon={<ClinkIcon />} label="Clink" onClick={() => setTab("clink")} />
         <TabButton active={tab === "me"} icon={<User />} label="Me" onClick={() => setTab("me")} />
       </nav>
     </div>
@@ -321,7 +366,7 @@ async function persistAuthResponse(response: Awaited<ReturnType<typeof authApi.l
   return nextUser;
 }
 
-function DiaryScreen() {
+function DiaryScreen({ beforeContent }: { beforeContent?: ReactNode } = {}) {
   const month = useCurrentMonth();
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -350,6 +395,7 @@ function DiaryScreen() {
 
   return (
     <Screen title="Diary" subtitle="Your personal drinking archive.">
+      {beforeContent}
       <div className="diary-actions">
         <button className="drunkti-button" type="button" onClick={() => setIsDrunkTiOpen(true)}>
           <TestTube2 size={14} />
@@ -430,11 +476,13 @@ function DiaryScreen() {
 }
 
 function DiscoverScreen() {
-  const [mode, setMode] = useState<DiscoverMode>("bars");
+  const [mode, setMode] = useState<DiscoverMode>("gallery");
   const [coords, setCoords] = useState<Coordinates | null>(null);
   const [locating, setLocating] = useState(false);
   const [locationError, setLocationError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [activeAdIndex, setActiveAdIndex] = useState(0);
+  const [boozerMapOpen, setBoozerMapOpen] = useState(false);
   const referenceCoords = coords ?? defaultDiscoveryCoordinates;
   const params = useMemo(() => createNearbyBarsParams(referenceCoords), [referenceCoords]);
   const nearby = useNearbyBarsQuery(params, { enabled: mode === "bars" });
@@ -450,19 +498,27 @@ function DiscoverScreen() {
     if (mode === "bars") {
       void requestLocation(setCoords, setLocating, setLocationError);
     }
-  }, []);
+  }, [mode]);
 
   return (
-    <Screen title="Discover" subtitle="Bars, community, and matches powered by backend data.">
+    <Screen title="Discover" subtitle="Gallery check-ins and nearby bars powered by backend data.">
       <div className="segmented">
+        <button className={mode === "gallery" ? "active" : ""} onClick={() => setMode("gallery")} type="button">Gallery</button>
         <button className={mode === "bars" ? "active" : ""} onClick={() => setMode("bars")} type="button">Bars</button>
-        <button className={mode === "community" ? "active" : ""} onClick={() => setMode("community")} type="button">Community</button>
-        <button className={mode === "match" ? "active" : ""} onClick={() => setMode("match")} type="button">Match</button>
       </div>
-      {mode === "bars" ? (
+      {mode === "gallery" ? (
+        <CommunityFeed />
+      ) : (
         <>
-          <SectionLabel icon={<Compass size={17} />} label="MICRO BAR MAP" />
-          <MapPreview bars={bars} region={region} userCoordinate={referenceCoords} />
+          <SectionLabel icon={<Compass size={17} />} label="BAR HAPPENINGS" />
+          <BarAdCarousel
+            activeIndex={activeAdIndex}
+            onChange={setActiveAdIndex}
+            onOpenBoozerMap={() => setBoozerMapOpen(true)}
+            slides={barAdSlides}
+          />
+          {/* MapPreview temporarily replaced by BarAdCarousel.
+          <MapPreview bars={bars} region={region} userCoordinate={referenceCoords} /> */}
           {!coords ? <StatusCard label="Showing the default Shanghai map until browser location permission is available." /> : null}
           <button className="permission-button" type="button" onClick={() => requestLocation(setCoords, setLocating, setLocationError)}>
             <LocateFixed size={16} />
@@ -477,14 +533,32 @@ function DiscoverScreen() {
             ))}
             {!nearby.isLoading && !bars.length ? <StatusCard label={nearby.data?.message ?? "No bars returned near this location."} /> : null}
           </div>
+          <BoozerMapModal visible={boozerMapOpen} onClose={() => setBoozerMapOpen(false)} />
         </>
-      ) : mode === "community" ? (
-        <CommunityFeed />
-      ) : (
-        <MatchPanel />
       )}
     </Screen>
   );
+}
+
+function ClinkScreen() {
+  const [mode, setMode] = useState<"match" | "chats">("match");
+  const conversations = useConversationsQuery();
+  const chatCount = conversations.data?.items.length ?? 0;
+  const beforeContent = (
+    <div className="clink-tabs">
+      <button className={mode === "match" ? "active" : ""} onClick={() => setMode("match")} type="button">
+        <ClinkIcon />
+        Nearby Radar
+      </button>
+      <button className={mode === "chats" ? "active" : ""} onClick={() => setMode("chats")} type="button">
+        Direct Chats ({chatCount})
+      </button>
+    </div>
+  );
+
+  return mode === "match"
+    ? <Screen title="Clink" subtitle="Match and chat with tonight's drinking buddies.">{beforeContent}<MatchPanel conversations={conversations} /></Screen>
+    : <Screen title="Clink" subtitle="Match and chat with tonight's drinking buddies.">{beforeContent}<ChatPanel conversations={conversations} /></Screen>;
 }
 
 function SipScreen({ onPublished }: { onPublished: () => void }) {
@@ -677,10 +751,22 @@ function SipScreen({ onPublished }: { onPublished: () => void }) {
 }
 
 function MeScreen({ user, onLogout }: { user: UserType; onLogout: () => void }) {
+  const [mode, setMode] = useState<MeMode>("profile");
   const drunkTiResult = useDrunkTiStore((state) => state.result);
+  const beforeContent = (
+    <div className="segmented">
+      <button className={mode === "profile" ? "active" : ""} onClick={() => setMode("profile")} type="button">Profile</button>
+      <button className={mode === "diary" ? "active" : ""} onClick={() => setMode("diary")} type="button">Diary</button>
+    </div>
+  );
+
+  if (mode === "diary") {
+    return <DiaryScreen beforeContent={beforeContent} />;
+  }
 
   return (
     <Screen title="Me" subtitle="Profile, settings, and local PWA state.">
+      {beforeContent}
       <section className="profile-card">
         <div className="avatar">{user.displayName.slice(0, 1).toUpperCase()}</div>
         <h2>{user.displayName}</h2>
@@ -851,10 +937,9 @@ function getCommunityPostImage(post: CommunityImagePost): string {
   return resolveMediaUrl(raw);
 }
 
-function MatchPanel() {
+function MatchPanel({ conversations }: { conversations: ReturnType<typeof useConversationsQuery> }) {
   const user = useAuthStore((state) => state.user);
   const candidates = useMatchCandidatesQuery();
-  const conversations = useConversationsQuery();
   const [activeCandidate, setActiveCandidate] = useState<MatchCandidate | null>(null);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [messageDraft, setMessageDraft] = useState("");
@@ -928,9 +1013,11 @@ function MatchPanel() {
   };
 
   if (activeCandidate) {
+    const profile = getCandidateProfile(activeCandidate);
     return (
-      <section className="match-chat-page" aria-label={`Chat with ${activeCandidate.displayName}`}>
-        <div className="match-chat-head">
+      <section className="clink-chat-shell" aria-label={`Chat with ${activeCandidate.displayName}`}>
+        <div className="clink-stream-pill">STREAM SYNCHRONIZED</div>
+        <div className="clink-chat-backline">
           <button
             className="match-chat-back"
             type="button"
@@ -944,8 +1031,8 @@ function MatchPanel() {
             <ArrowLeft size={16} />
           </button>
           <div className="match-chat-person">
-            <div className="match-chat-avatar">
-              {activeCandidate.avatarUrl ? <img src={resolveMediaUrl(activeCandidate.avatarUrl)} alt="" /> : activeCandidate.displayName.slice(0, 1).toUpperCase()}
+            <div className="match-chat-avatar" style={{ "--avatar-color": profile.avatarColor } as CSSProperties}>
+              {activeCandidate.avatarUrl ? <img src={resolveMediaUrl(activeCandidate.avatarUrl)} alt="" /> : profile.emoji}
             </div>
             <span>
               <strong>{activeCandidate.displayName}</strong>
@@ -961,12 +1048,12 @@ function MatchPanel() {
             </span>
           </div>
         </div>
-        <div className="match-message-list">
+        <div className="clink-message-list">
           {messages.isLoading ? <StatusCard label="Loading messages" /> : null}
           {messages.isError ? <StatusCard tone="error" label={messages.error.message} /> : null}
           {activeConversationId
             ? (messages.data?.items ?? []).map((message) => (
-              <p key={message.id} className={message.senderId === user?.id ? "mine" : "theirs"}>
+              <p key={message.id} className={`clink-message-bubble ${message.senderId === user?.id ? "mine" : "theirs"}`}>
                 {message.body}
               </p>
             ))
@@ -984,7 +1071,7 @@ function MatchPanel() {
             <small>No messages yet. Start with a tiny pour.</small>
           ) : null}
         </div>
-        <div className="match-chat-compose">
+        <div className="clink-compose">
           <input
             autoFocus
             value={messageDraft}
@@ -1005,8 +1092,13 @@ function MatchPanel() {
   }
 
   return (
-    <>
-      <SectionLabel icon={<Sparkles size={17} />} label="TONIGHT MATCH" />
+    <section className="clink-panel">
+      <div className="clink-radar-card">
+        <span />
+        <strong>Scanning compatible local sippers...</strong>
+        <small>DrunkTI chemistry active: INFP</small>
+      </div>
+      <SectionLabel icon={<ClinkIcon />} label="HIGHEST CHEMISTRY MATCHES TONIGHT" />
       {candidates.isLoading ? <StatusCard label="Loading nearby drinking buddies" /> : null}
       {candidates.isError ? <StatusCard tone="error" label={candidates.error.message} /> : null}
       {savedCandidates.length ? (
@@ -1025,33 +1117,243 @@ function MatchPanel() {
         </section>
       ) : null}
       <div className="stack">
-        {orderedCandidates.map((candidate) => (
-          <article className="match-card" key={candidate.id}>
+        {orderedCandidates.map((candidate) => {
+          const profile = getCandidateProfile(candidate);
+          const clinked = savedChatIds.includes(candidate.id);
+
+          return (
+          <article className="clink-match-card" key={candidate.id}>
+            <div className="clink-match-main">
+              <div className="match-avatar" style={{ "--avatar-color": profile.avatarColor } as CSSProperties}>
+                {candidate.avatarUrl ? (
+                  <img src={resolveMediaUrl(candidate.avatarUrl)} alt="" />
+                ) : (
+                  profile.emoji
+                )}
+              </div>
+              <div className="clink-match-body">
+                <div className="clink-match-title">
+                  <strong>{candidate.displayName}</strong>
+                  <em className="clink-drunkti-badge">{profile.drunkTi}</em>
+                </div>
+                <small>
+                  <MapPin size={11} />
+                  {profile.bar} <b>/</b> Favors: {profile.favors}
+                </small>
+              </div>
+              <div className="clink-score">
+                <span>METRIC</span>
+                <strong>{profile.score}% Match</strong>
+              </div>
+            </div>
+            <blockquote>{candidate.reason ?? profile.quote}</blockquote>
+            <button className={`match-chat-button ${clinked ? "is-clinked" : ""}`} type="button" onClick={() => openChat(candidate)}>
+              <ClinkIcon />
+              {clinked ? "CLINKED - CHAT NOW" : "CLINK GLASSES"}
+            </button>
+          </article>
+        );
+        })}
+        {!candidates.isLoading && !(candidates.data ?? []).length ? <StatusCard label="No match candidates returned." /> : null}
+      </div>
+    </section>
+  );
+}
+
+function getCandidateProfile(candidate: MatchCandidate) {
+  const profiles = [
+    {
+      avatarColor: "#a5211d",
+      bar: "Lantern Bar",
+      drunkTi: "INFJ",
+      emoji: "NB",
+      favors: "Classic Martini",
+      quote: "A quiet listener who prefers dry gin, old jazz, and the corner booth after midnight.",
+      score: 90
+    },
+    {
+      avatarColor: "#f0a43d",
+      bar: "The Botanist",
+      drunkTi: "ESTP",
+      emoji: "SL",
+      favors: "Vibrant Negroni",
+      quote: "High social energy around Donghu Rd, always ready to trade cocktail secrets over one more round.",
+      score: 90
+    },
+    {
+      avatarColor: "#214b34",
+      bar: "Union Trading",
+      drunkTi: "INTP",
+      emoji: "UT",
+      favors: "Smoky Highball",
+      quote: "Breaks every drink into aroma, ice, and mood variables. Best for a slow last-round conversation.",
+      score: 86
+    }
+  ];
+  const charTotal = candidate.id.concat(candidate.displayName).split("").reduce((total, char) => total + char.charCodeAt(0), 0);
+  const profile = profiles[charTotal % profiles.length];
+
+  return {
+    ...profile,
+    score: candidate.hasTodayCheckIn ? profile.score + 2 : profile.score,
+    quote: candidate.reason ?? profile.quote
+  };
+}
+
+function ClinkIcon({ size = 16 }: { size?: number }) {
+  return (
+    <svg className="clink-icon" viewBox="0 0 24 24" aria-hidden="true" height={size} width={size}>
+      <path d="M8.7 4.2 4.3 7.1l3.4 5.1 4.4-2.9Z" />
+      <path d="m15.3 4.2 4.4 2.9-3.4 5.1-4.4-2.9Z" />
+      <path d="m9.6 11.8-2.2 5.6" />
+      <path d="m14.4 11.8 2.2 5.6" />
+      <path d="M5.2 19.3h5" />
+      <path d="M13.8 19.3h5" />
+      <path d="M10.1 8.9h3.8" />
+    </svg>
+  );
+}
+
+function ChatPanel({ conversations }: { conversations: ReturnType<typeof useConversationsQuery> }) {
+
+  return (
+    <>
+      <SectionLabel icon={<MessageCircle size={17} />} label="CHATS" />
+      {conversations.isLoading ? <StatusCard label="Loading chats" /> : null}
+      {conversations.isError ? <StatusCard tone="error" label={conversations.error.message} /> : null}
+      <div className="stack">
+        {(conversations.data?.items ?? []).map((conversation) => (
+          <article className="match-card" key={conversation.id}>
             <div className="match-avatar">
-              {candidate.avatarUrl ? (
-                <img src={resolveMediaUrl(candidate.avatarUrl)} alt="" />
-              ) : (
-                candidate.displayName.slice(0, 1).toUpperCase()
-              )}
+              <MessageCircle size={21} />
             </div>
             <div>
-              <strong>{candidate.displayName}</strong>
-              {candidate.reason ? <span>{candidate.reason}</span> : null}
-              {candidate.hasTodayCheckIn ? (
-                <small>Checked in tonight</small>
-              ) : typeof candidate.distanceMeters === "number" ? (
-                <small>{formatDistance(candidate.distanceMeters)} away</small>
-              ) : null}
-              <button className="match-chat-button" type="button" onClick={() => openChat(candidate)}>
-                <MessageCircle size={14} />
-                Clink
-              </button>
+              <strong>{conversation.title}</strong>
+              <span>{conversation.lastMessage}</span>
             </div>
           </article>
         ))}
-        {!candidates.isLoading && !(candidates.data ?? []).length ? <StatusCard label="No match candidates returned." /> : null}
+        {!conversations.isLoading && !(conversations.data?.items ?? []).length ? <StatusCard label="No chats returned." /> : null}
       </div>
     </>
+  );
+}
+
+function BarAdCarousel({
+  activeIndex,
+  onChange,
+  onOpenBoozerMap,
+  slides
+}: {
+  activeIndex: number;
+  onChange: (index: number) => void;
+  onOpenBoozerMap: () => void;
+  slides: BarAdSlide[];
+}) {
+  const activeSlide = slides[activeIndex] ?? slides[0];
+  const goTo = (nextIndex: number) => {
+    onChange((nextIndex + slides.length) % slides.length);
+  };
+
+  return (
+    <section className="bar-ad-carousel" aria-label="Bar event ads">
+      <button className="bar-ad-nav prev" type="button" aria-label="Previous event" onClick={() => goTo(activeIndex - 1)}>
+        <ChevronLeft size={17} />
+      </button>
+      <button className="bar-ad-nav next" type="button" aria-label="Next event" onClick={() => goTo(activeIndex + 1)}>
+        <ChevronRight size={17} />
+      </button>
+      <article
+        className={`bar-ad-slide ${activeSlide.isBoozerMap ? "is-boozer-map" : ""}`}
+        onClick={activeSlide.isBoozerMap ? onOpenBoozerMap : undefined}
+        onKeyDown={activeSlide.isBoozerMap ? (event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            onOpenBoozerMap();
+          }
+        } : undefined}
+        role={activeSlide.isBoozerMap ? "button" : undefined}
+        style={activeSlide.imageUrl ? { "--ad-image": `url(${activeSlide.imageUrl})` } as CSSProperties : undefined}
+        tabIndex={activeSlide.isBoozerMap ? 0 : undefined}
+      >
+        {activeSlide.isBoozerMap ? (
+          <div className="bar-ad-map" aria-hidden="true">
+            <span className="bar-ad-route" />
+            {boozerMapPoints.map((point) => (
+              <i key={point.id} style={{ left: `${point.left}%`, top: `${point.top}%` }} />
+            ))}
+          </div>
+        ) : null}
+        <div className="bar-ad-copy">
+          <span>{activeSlide.kicker}</span>
+          <strong>{activeSlide.title}</strong>
+          <p>{activeSlide.copy}</p>
+          {activeSlide.isBoozerMap ? (
+            <button type="button" onClick={onOpenBoozerMap}>{activeSlide.cta}</button>
+          ) : (
+            <button type="button">{activeSlide.cta}</button>
+          )}
+        </div>
+      </article>
+      <div className="bar-ad-dots" aria-label="Choose event ad">
+        {slides.map((slide, index) => (
+          <button
+            aria-label={`Show ${slide.title}`}
+            className={index === activeIndex ? "active" : ""}
+            key={slide.id}
+            onClick={() => onChange(index)}
+            type="button"
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function BoozerMapModal({ onClose, visible }: { onClose: () => void; visible: boolean }) {
+  const [litPoints, setLitPoints] = useState<Set<string>>(() => new Set());
+
+  if (!visible) {
+    return null;
+  }
+
+  const togglePoint = (pointId: string) => {
+    setLitPoints((current) => {
+      const next = new Set(current);
+      if (next.has(pointId)) {
+        next.delete(pointId);
+      } else {
+        next.add(pointId);
+      }
+      return next;
+    });
+  };
+
+  return (
+    <div className="modal-scrim" role="dialog" aria-modal="true" aria-label="Boozer map route">
+      <section className="boozer-map-modal">
+        <div className="modal-topbar">
+          <strong>酒鬼地图 · FRENCH CONCESSION LOOP</strong>
+          <button type="button" onClick={onClose} aria-label="Close boozer map"><X size={17} /></button>
+        </div>
+        <div className="boozer-map-canvas">
+          <span className="boozer-map-path" />
+          {boozerMapPoints.map((point, index) => (
+            <button
+              className={`boozer-map-point ${litPoints.has(point.id) ? "is-lit" : ""}`}
+              key={point.id}
+              onClick={() => togglePoint(point.id)}
+              style={{ left: `${point.left}%`, top: `${point.top}%` } as CSSProperties}
+              type="button"
+            >
+              <b>{index + 1}</b>
+              <small>{point.label}</small>
+            </button>
+          ))}
+        </div>
+        <p>French Concession route progress: {litPoints.size}/{boozerMapPoints.length} checkpoints lit.</p>
+      </section>
+    </div>
   );
 }
 
@@ -1509,3 +1811,4 @@ function clampRating(value: string) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? Math.max(1, Math.min(5, parsed)) : undefined;
 }
+

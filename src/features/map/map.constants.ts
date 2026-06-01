@@ -1,5 +1,4 @@
 export const discoverTabs = [
-  { key: "bars", label: "Bars" },
-  { key: "community", label: "Community" },
-  { key: "match", label: "Match" }
+  { key: "gallery", label: "Gallery" },
+  { key: "bars", label: "Bars" }
 ] as const;

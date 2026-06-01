@@ -21,7 +21,7 @@ import { colors, spacing, typography } from "@/theme";
 import { formatDistance, formatRating } from "@/utils/format";
 
 export default function MapScreen() {
-  const [tab, setTab] = useState("bars");
+  const [tab, setTab] = useState("gallery");
   const [coords, setCoords] = useState<Coordinates | null>(null);
   const [isLocating, setIsLocating] = useState(true);
   const [locationError, setLocationError] = useState<PermissionGuidance | null>(null);
@@ -99,9 +99,18 @@ export default function MapScreen() {
 
   return (
     <ScrollScreen>
-      <AppHeader title="Discover" subtitle="Bars, community, and matches powered by backend data." />
+      <AppHeader title="Discover" subtitle="Gallery check-ins and nearby bars powered by backend data." />
       <AppSegmentedControl segments={discoverTabs} value={tab} onChange={setTab} />
-      {tab === "bars" ? (
+      {tab === "gallery" ? (
+        <>
+          <View style={styles.sectionLabelRow}>
+            <Ionicons name="people-circle" size={17} color="#c68334" />
+            <Text style={styles.sectionLabel}>GALLERY</Text>
+            <View style={styles.sectionRule} />
+          </View>
+          <GalleryFeedList emptyTitle="No gallery posts yet" />
+        </>
+      ) : tab === "bars" ? (
         <>
           <View style={styles.sectionLabelRow}>
             <Ionicons name="compass" size={17} color="#c68334" />
@@ -183,18 +192,7 @@ export default function MapScreen() {
             !locationError && <EmptyState title="No bars returned" body={emptyBarsMessage} />
           )}
         </>
-      ) : tab === "community" ? (
-        <>
-          <View style={styles.sectionLabelRow}>
-            <Ionicons name="people-circle" size={17} color="#c68334" />
-            <Text style={styles.sectionLabel}>COMMUNITY</Text>
-            <View style={styles.sectionRule} />
-          </View>
-          <GalleryFeedList emptyTitle="No community posts yet" />
-        </>
-      ) : (
-        <EmptyState title={`${discoverTabs.find((item) => item.key === tab)?.label} panel`} body="Wire this tab to its feature API next." />
-      )}
+      ) : null}
     </ScrollScreen>
   );
 }
