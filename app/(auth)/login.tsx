@@ -1,10 +1,13 @@
-import { FontAwesome5, Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
+import * as Linking from "expo-linking";
 import { router } from "expo-router";
+import * as WebBrowser from "expo-web-browser";
 import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import {
   Animated,
+  ActivityIndicator,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -14,38 +17,58 @@ import {
   View
 } from "react-native";
 import { authApi } from "@/features/auth/auth.api";
+import type { AuthResponse } from "@/features/auth/auth.types";
 import { useAuthStore } from "@/features/auth/auth.store";
 import { saveLocalSessionUser } from "@/features/auth/local-session";
 import { setAccessToken, setRefreshToken } from "@/services/storage/token-storage";
 
 type AuthMode = "login" | "register";
 type ToastKind = "error" | "success";
+type GoogleAuthStatus = "idle" | "opening" | "waiting" | "completing";
 
 const crimson = "#961c1c";
 const cream = "#faf6ee";
+const authCardHeight = 492;
+
+type AuthScreenProps = {
+  initialMode?: AuthMode;
+};
 
 export default function LoginScreen() {
+  return <AuthScreen initialMode="login" />;
+}
+
+export function AuthScreen({ initialMode = "login" }: AuthScreenProps) {
   const setUser = useAuthStore((state) => state.setUser);
-  const [mode, setMode] = useState<AuthMode>("login");
+  const [mode, setMode] = useState<AuthMode>(initialMode);
   const [displayName, setDisplayName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [focusedField, setFocusedField] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [googleAuthStatus, setGoogleAuthStatus] = useState<GoogleAuthStatus>("idle");
   const [toast, setToast] = useState<{ kind: ToastKind; message: string } | null>(null);
-  const capsuleX = useRef(new Animated.Value(0)).current;
+  const capsuleX = useRef(new Animated.Value(initialMode === "login" ? 0 : 1)).current;
   const glow = useRef(new Animated.Value(0)).current;
+  const nameReveal = useRef(new Animated.Value(initialMode === "register" ? 1 : 0)).current;
   const passwordRef = useRef<TextInput>(null);
 
   useEffect(() => {
-    Animated.spring(capsuleX, {
-      toValue: mode === "login" ? 0 : 1,
-      friction: 9,
-      tension: 95,
-      useNativeDriver: true
-    }).start();
-  }, [capsuleX, mode]);
+    Animated.parallel([
+      Animated.spring(capsuleX, {
+        toValue: mode === "login" ? 0 : 1,
+        friction: 9,
+        tension: 95,
+        useNativeDriver: true
+      }),
+      Animated.timing(nameReveal, {
+        toValue: mode === "register" ? 1 : 0,
+        duration: 180,
+        useNativeDriver: true
+      })
+    ]).start();
+  }, [capsuleX, mode, nameReveal]);
 
   useEffect(() => {
     const loop = Animated.loop(
@@ -71,13 +94,10 @@ export default function LoginScreen() {
     setTimeout(() => setToast(null), kind === "error" ? 2600 : 2100);
   };
 
-  const completeAuth = async (nextEmail: string, nextName: string) => {
-    const response = mode === "login"
-      ? await authApi.login({ email: nextEmail, password })
-      : await authApi.register({ displayName: nextName, email: nextEmail, password });
+  const completeWithResponse = async (response: AuthResponse, fallbackEmail?: string) => {
     const user = {
       ...response.user,
-      email: response.user.email ?? nextEmail
+      email: response.user.email ?? fallbackEmail ?? ""
     };
 
     await setAccessToken(response.accessToken);
@@ -89,27 +109,35 @@ export default function LoginScreen() {
     router.replace("/(tabs)/diary");
   };
 
+  const completePasswordAuth = async (nextEmail: string, nextName: string) => {
+    const response = mode === "login"
+      ? await authApi.login({ email: nextEmail, password })
+      : await authApi.register({ displayName: nextName, email: nextEmail, password });
+
+    await completeWithResponse(response, nextEmail);
+  };
+
   const submit = async () => {
     const trimmedEmail = email.trim().toLowerCase();
     const trimmedName = displayName.trim();
 
     if (!trimmedEmail.includes("@")) {
-      showToast("请输入有效邮箱，用来保存今夜会话。", "error");
+      showToast("Enter a valid email to keep your night log synced.", "error");
       return;
     }
     if (password.length < 6) {
-      showToast("密码至少 6 位，微醺也要安全。", "error");
+      showToast("Password needs at least 6 characters.", "error");
       return;
     }
     if (mode === "register" && trimmedName.length < 2) {
-      showToast("请写下 2 个字以上的今夜昵称。", "error");
+      showToast("Add a display name with at least 2 characters.", "error");
       return;
     }
 
     setLoading(true);
-    showToast(mode === "login" ? "正在开启私人酒单..." : "正在封存今夜昵称...");
+    showToast(mode === "login" ? "Signing in..." : "Creating your BarLog ID...");
     try {
-      await completeAuth(trimmedEmail, mode === "register" ? trimmedName : trimmedName || trimmedEmail.split("@")[0]);
+      await completePasswordAuth(trimmedEmail, mode === "register" ? trimmedName : trimmedName || trimmedEmail.split("@")[0]);
     } catch (error) {
       showToast(error instanceof Error ? error.message : "Unable to authenticate.", "error");
     } finally {
@@ -117,12 +145,40 @@ export default function LoginScreen() {
     }
   };
 
-  const socialConnect = (platform: string, name: string) => {
+  const continueWithGoogle = async () => {
     setLoading(true);
-    showToast(`正在安全连接 ${platform} 授权...`);
-    setTimeout(() => {
-      void completeAuth(`${platform.toLowerCase()}@barlog.local`, name);
-    }, 650);
+    setGoogleAuthStatus("opening");
+    showToast("Opening Google sign-in...");
+    try {
+      const redirectUri = Linking.createURL("auth/google");
+      const { authUrl } = await authApi.startGoogleAuth({ redirectUri, mode });
+      setGoogleAuthStatus("waiting");
+      const result = await WebBrowser.openAuthSessionAsync(authUrl, redirectUri);
+
+      if (result.type !== "success") {
+        showToast("Google sign-in was cancelled.", "error");
+        return;
+      }
+
+      setGoogleAuthStatus("completing");
+      const parsed = Linking.parse(result.url);
+      const accessToken = readParam(parsed.queryParams?.accessToken);
+      const refreshToken = readParam(parsed.queryParams?.refreshToken);
+
+      if (!accessToken) {
+        const errorMessage = readParam(parsed.queryParams?.error) ?? "Google sign-in did not return a token.";
+        showToast(errorMessage, "error");
+        return;
+      }
+
+      const response = await authApi.completeGoogleAuth({ accessToken, refreshToken });
+      await completeWithResponse(response);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Unable to sign in with Google.", "error");
+    } finally {
+      setLoading(false);
+      setGoogleAuthStatus("idle");
+    }
   };
 
   const activeTranslate = capsuleX.interpolate({
@@ -132,6 +188,14 @@ export default function LoginScreen() {
   const breathingOpacity = glow.interpolate({
     inputRange: [0, 1],
     outputRange: [0.24, 0.52]
+  });
+  const nameOpacity = nameReveal.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, 1]
+  });
+  const nameTranslate = nameReveal.interpolate({
+    inputRange: [0, 1],
+    outputRange: [-6, 0]
   });
 
   return (
@@ -152,7 +216,7 @@ export default function LoginScreen() {
         keyboardShouldPersistTaps="always"
       >
         <View style={styles.header}>
-          <Text style={styles.eyebrow}>ALCOLHOL% PORTAL</Text>
+          <Text style={styles.eyebrow}>ALCOHOL% PORTAL</Text>
           <Text style={styles.logo}>BarLog</Text>
           <View style={styles.rule} />
         </View>
@@ -170,38 +234,44 @@ export default function LoginScreen() {
               </Pressable>
             </View>
 
-            {mode === "register" ? (
+            <Animated.View
+              pointerEvents={mode === "register" ? "auto" : "none"}
+              style={[
+                styles.reservedNameField,
+                { opacity: nameOpacity, transform: [{ translateY: nameTranslate }] }
+              ]}
+            >
               <AuthField
                 icon={<Ionicons name="person-outline" size={18} color="#9d8c82" />}
                 focused={focusedField === "name"}
-                label="Tonight Name / 今夜昵称"
+                label="Display Name"
                 onBlur={() => setFocusedField(null)}
                 onChangeText={setDisplayName}
                 onFocus={() => setFocusedField("name")}
-                placeholder="比如 Crimson Guest"
+                placeholder="Crimson Guest"
                 textContentType="nickname"
                 value={displayName}
               />
-            ) : null}
+            </Animated.View>
 
             <AuthField
               autoCapitalize="none"
               icon={<Ionicons name="mail-outline" size={18} color="#9d8c82" />}
               focused={focusedField === "email"}
               keyboardType="email-address"
-              label="Email Address / 电子邮箱"
+              label="Email Address"
               onBlur={() => setFocusedField(null)}
               onChangeText={setEmail}
               onFocus={() => setFocusedField("email")}
-              placeholder="name@exclusive.com"
+              placeholder="name@barlog.app"
               textContentType="emailAddress"
               value={email}
             />
 
             <View>
               <View style={styles.passwordLabelRow}>
-                <Text style={styles.fieldLabel}>Password / 安全密语</Text>
-                <Pressable onPress={() => showToast("演示模式：任意 6 位以上密码即可进入。")}>
+                <Text style={styles.fieldLabel}>Password</Text>
+                <Pressable onPress={() => router.push("/(auth)/forgot-password")}>
                   <Text style={styles.forgot}>Forgot?</Text>
                 </Pressable>
               </View>
@@ -231,29 +301,35 @@ export default function LoginScreen() {
 
             <Pressable disabled={loading} onPress={submit} style={({ pressed }) => [styles.submit, pressed && styles.pressed, loading && styles.disabled]}>
               <LinearGradient colors={["#8b1e19", "#bd2721"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.submitGradient}>
-                <Text style={styles.submitText}>{loading ? "POURING INSPIRATION..." : mode === "login" ? "ENTER BARLOG" : "CREATE NIGHT ID"}</Text>
+                <Text style={styles.submitText}>{loading ? "PLEASE WAIT..." : mode === "login" ? "ENTER BARLOG" : "CREATE NIGHT ID"}</Text>
                 {!loading ? <Ionicons name="arrow-forward" size={16} color={cream} /> : null}
               </LinearGradient>
             </Pressable>
 
             <View style={styles.dividerRow}>
               <View style={styles.divider} />
-              <Text style={styles.dividerText}>OR CONTINUE WITH</Text>
+              <Text style={styles.dividerText}>OR</Text>
               <View style={styles.divider} />
             </View>
 
-            <View style={styles.socialRow}>
-              <SocialButton label="G" tint="#ea4335" onPress={() => socialConnect("Google", "Google 品鉴家")} />
-              <SocialButton icon={<FontAwesome5 name="music" size={14} color="#ffffff" />} onPress={() => socialConnect("TikTok", "TikTok 夜行者")} />
-              <SocialButton label="X" tint="#e8ded8" onPress={() => socialConnect("X", "X Minimalist")} />
-              <SocialButton icon={<MaterialCommunityIcons name="instagram" size={18} color="#ff5c9f" />} onPress={() => socialConnect("Instagram", "Instagram Collector")} />
+            <Pressable disabled={loading} onPress={continueWithGoogle} style={({ pressed }) => [styles.googleButton, pressed && styles.socialPressed, loading && styles.disabled]}>
+              <Text style={styles.googleMark}>G</Text>
+              <Text style={styles.googleText}>Continue with Google</Text>
+            </Pressable>
+
+            <View style={[styles.googleAuthPanel, googleAuthStatus === "idle" && styles.googleAuthPanelIdle]}>
+              {googleAuthStatus !== "idle" ? <ActivityIndicator color="#ea4335" size="small" /> : null}
+              <View style={styles.googleAuthCopy}>
+                <Text style={styles.googleAuthTitle}>Google authorization</Text>
+                <Text style={styles.googleAuthStatus}>{getGoogleAuthStatusText(googleAuthStatus)}</Text>
+              </View>
             </View>
           </View>
         </View>
 
         <View style={styles.footer}>
           <Text style={styles.privacy}>Secure connection enabled. Privacy Policy</Text>
-          <Text style={styles.console}>BARLOG SYSTEM CONSOLE © EST. 2026</Text>
+          <Text style={styles.console}>BARLOG SYSTEM CONSOLE - EST. 2026</Text>
         </View>
       </ScrollView>
 
@@ -309,12 +385,21 @@ function AuthField(props: AuthFieldProps) {
   );
 }
 
-function SocialButton({ icon, label, onPress, tint }: { icon?: ReactNode; label?: string; onPress: () => void; tint?: string }) {
-  return (
-    <Pressable onPress={onPress} style={({ pressed }) => [styles.socialButton, pressed && styles.socialPressed]}>
-      {icon ?? <Text style={[styles.socialLabel, tint ? { color: tint } : null]}>{label}</Text>}
-    </Pressable>
-  );
+function readParam(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function getGoogleAuthStatusText(status: GoogleAuthStatus) {
+  if (status === "opening") {
+    return "Preparing secure Google redirect...";
+  }
+  if (status === "waiting") {
+    return "Complete sign-in in the Google window.";
+  }
+  if (status === "completing") {
+    return "Finishing BarLog sign-in...";
+  }
+  return "Ready to open Google sign-in.";
 }
 
 const styles = StyleSheet.create({
@@ -399,6 +484,7 @@ const styles = StyleSheet.create({
     borderColor: "rgba(173, 34, 28, 0.34)",
     borderRadius: 28,
     backgroundColor: "rgba(18, 9, 8, 0.92)",
+    height: authCardHeight,
     padding: 18,
     shadowColor: "#000000",
     shadowOpacity: 0.55,
@@ -437,6 +523,9 @@ const styles = StyleSheet.create({
   },
   switcherTextActive: {
     color: cream
+  },
+  reservedNameField: {
+    height: 72
   },
   fieldLabel: {
     color: "#a8988c",
@@ -523,27 +612,58 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     letterSpacing: 1
   },
-  socialRow: {
-    flexDirection: "row",
-    gap: 10
-  },
-  socialButton: {
+  googleButton: {
     alignItems: "center",
-    backgroundColor: "#0d0706",
+    backgroundColor: "#f7efe7",
+    borderColor: "#f3d7c5",
+    borderRadius: 14,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 10,
+    height: 48,
+    justifyContent: "center"
+  },
+  googleMark: {
+    color: "#ea4335",
+    fontSize: 16,
+    fontWeight: "900"
+  },
+  googleText: {
+    color: "#1e1512",
+    fontSize: 13,
+    fontWeight: "900"
+  },
+  googleAuthPanel: {
+    alignItems: "center",
     borderColor: "#2b1d1a",
     borderRadius: 14,
     borderWidth: 1,
+    backgroundColor: "#120b0a",
+    flexDirection: "row",
+    gap: 10,
+    height: 48,
+    paddingHorizontal: 13
+  },
+  googleAuthPanelIdle: {
+    opacity: 0
+  },
+  googleAuthCopy: {
     flex: 1,
-    height: 46,
-    justifyContent: "center"
+    gap: 2
+  },
+  googleAuthTitle: {
+    color: cream,
+    fontSize: 11,
+    fontWeight: "900"
+  },
+  googleAuthStatus: {
+    color: "#a8988c",
+    fontSize: 10,
+    fontWeight: "800"
   },
   socialPressed: {
-    backgroundColor: "#1a100e",
-    transform: [{ scale: 0.96 }]
-  },
-  socialLabel: {
-    fontSize: 15,
-    fontWeight: "900"
+    opacity: 0.88,
+    transform: [{ scale: 0.98 }]
   },
   footer: {
     alignItems: "center",

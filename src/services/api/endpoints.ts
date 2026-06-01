@@ -2,6 +2,8 @@ export const endpoints = {
   auth: {
     register: "/api/auth/register",
     login: "/api/auth/login",
+    googleStart: "/api/auth/google/start",
+    googleComplete: "/api/auth/google/complete",
     logout: "/api/auth/logout",
     me: "/api/auth/me",
     refresh: "/api/auth/refresh"

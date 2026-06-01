@@ -11,6 +11,7 @@ import {
   LocateFixed,
   LogOut,
   Map as MapIcon,
+  MapPin,
   MessageCircle,
   RefreshCw,
   Search,
@@ -19,6 +20,7 @@ import {
   Star,
   TestTube2,
   User,
+  Wine,
   X
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
@@ -50,6 +52,7 @@ import { formatDistance, formatRating } from "@/utils/format";
 
 type TabKey = "diary" | "map" | "sip" | "me";
 type DiscoverMode = "bars" | "community" | "match";
+type DiaryStatFilter = "all" | "bar" | "rating" | null;
 type Coordinates = { lat: number; lng: number };
 
 const drinkCategories: DrinkCategory[] = ["cocktail", "whisky", "wine", "beer", "other"];
@@ -197,6 +200,36 @@ function LoginScreen({ onAuthed }: { onAuthed: (user: UserType) => void }) {
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
+
+  useEffect(() => {
+    const query = new URLSearchParams(window.location.search);
+    const accessToken = query.get("accessToken");
+    const refreshToken = query.get("refreshToken") ?? undefined;
+    const error = query.get("error");
+
+    if (error) {
+      setMessage(error);
+      window.history.replaceState({}, "", window.location.pathname);
+      return;
+    }
+
+    if (!accessToken) {
+      return;
+    }
+
+    setGoogleLoading(true);
+    setMessage("Finishing Google sign-in...");
+    void completeAuthResponse(authApi.completeGoogleAuth({ accessToken, refreshToken }))
+      .then(onAuthed)
+      .catch((authError) => {
+        setMessage(authError instanceof Error ? authError.message : "Unable to finish Google sign-in.");
+      })
+      .finally(() => {
+        setGoogleLoading(false);
+        window.history.replaceState({}, "", window.location.pathname);
+      });
+  }, [onAuthed]);
 
   async function submit() {
     const nextEmail = email.trim().toLowerCase();
@@ -213,12 +246,7 @@ function LoginScreen({ onAuthed }: { onAuthed: (user: UserType) => void }) {
       const response = mode === "login"
         ? await authApi.login({ email: nextEmail, password })
         : await authApi.register({ displayName: nextName, email: nextEmail, password });
-      const nextUser = { ...response.user, email: response.user.email ?? nextEmail };
-      await setAccessToken(response.accessToken);
-      if (response.refreshToken) {
-        await setRefreshToken(response.refreshToken);
-      }
-      await saveLocalSessionUser(nextUser);
+      const nextUser = await persistAuthResponse(response, nextEmail);
       onAuthed(nextUser);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Unable to authenticate.");
@@ -227,10 +255,24 @@ function LoginScreen({ onAuthed }: { onAuthed: (user: UserType) => void }) {
     }
   }
 
+  async function continueWithGoogle() {
+    setGoogleLoading(true);
+    setMessage("Opening Google sign-in...");
+
+    try {
+      const redirectUri = `${window.location.origin}/auth/google/callback`;
+      const { authUrl } = await authApi.startGoogleAuth({ redirectUri, mode });
+      window.location.assign(authUrl);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to open Google sign-in.");
+      setGoogleLoading(false);
+    }
+  }
+
   return (
     <div className="auth-screen">
       <div className="brand-block">
-        <p className="eyebrow">ALCOLHOL% PORTAL</p>
+        <p className="eyebrow">ALCOHOL% PORTAL</p>
         <h1>BarLog</h1>
         <span />
       </div>
@@ -239,12 +281,10 @@ function LoginScreen({ onAuthed }: { onAuthed: (user: UserType) => void }) {
           <button className={mode === "login" ? "active" : ""} onClick={() => setMode("login")} type="button">Login</button>
           <button className={mode === "register" ? "active" : ""} onClick={() => setMode("register")} type="button">Register</button>
         </div>
-        {mode === "register" ? (
-          <label className="field">
-            <span>Tonight Name</span>
-            <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="Crimson Guest" />
-          </label>
-        ) : null}
+        <label className={`field auth-register-field ${mode === "register" ? "is-visible" : ""}`} aria-hidden={mode !== "register"}>
+          <span>Tonight Name</span>
+          <input disabled={mode !== "register"} value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="Crimson Guest" />
+        </label>
         <label className="field">
           <span>Email Address</span>
           <input autoCapitalize="none" inputMode="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="demo@barlog.app" />
@@ -253,13 +293,32 @@ function LoginScreen({ onAuthed }: { onAuthed: (user: UserType) => void }) {
           <span>Password</span>
           <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="password123" />
         </label>
-        {message ? <p className="inline-error">{message}</p> : null}
+        <p className={`auth-message-slot ${message ? "is-visible" : ""}`}>{message ?? " "}</p>
         <button className="primary-button" disabled={loading} onClick={submit} type="button">
           {loading ? "POURING INSPIRATION..." : mode === "login" ? "ENTER BARLOG" : "CREATE NIGHT ID"}
+        </button>
+        <button className="google-login-button" disabled={loading || googleLoading} onClick={continueWithGoogle} type="button">
+          <span aria-hidden="true">G</span>
+          {googleLoading ? "Opening Google..." : "Enter with Google"}
         </button>
       </section>
     </div>
   );
+}
+
+async function completeAuthResponse(responsePromise: Promise<Awaited<ReturnType<typeof authApi.completeGoogleAuth>>>) {
+  const response = await responsePromise;
+  return persistAuthResponse(response);
+}
+
+async function persistAuthResponse(response: Awaited<ReturnType<typeof authApi.login>>, fallbackEmail = "") {
+  const nextUser = { ...response.user, email: response.user.email ?? fallbackEmail };
+  await setAccessToken(response.accessToken);
+  if (response.refreshToken) {
+    await setRefreshToken(response.refreshToken);
+  }
+  await saveLocalSessionUser(nextUser);
+  return nextUser;
 }
 
 function DiaryScreen() {
@@ -267,6 +326,7 @@ function DiaryScreen() {
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [activeFilter, setActiveFilter] = useState<DiaryFilterKey>("all");
+  const [activeStatFilter, setActiveStatFilter] = useState<DiaryStatFilter>("all");
   const [isDrunkTiOpen, setIsDrunkTiOpen] = useState(false);
   const drunkTiResult = useDrunkTiStore((state) => state.result);
   const setDrunkTiResult = useDrunkTiStore((state) => state.setResult);
@@ -274,7 +334,19 @@ function DiaryScreen() {
   const calendar = useDiaryCalendarQuery(month);
   const recent = useRecentSipsQuery();
   const logs = recent.data?.items ?? [];
-  const visibleLogs = filterDiaryLogs(logs, { category: activeFilter, search, selectedDate });
+  const baseVisibleLogs = filterDiaryLogs(logs, { category: activeFilter, search, selectedDate });
+  const visibleLogs = baseVisibleLogs.filter((sip) => {
+    if (activeStatFilter === "bar") {
+      return Boolean(sip.barName ?? sip.area ?? sip.city);
+    }
+    if (activeStatFilter === "rating") {
+      return typeof sip.rating === "number";
+    }
+    return true;
+  });
+  const totalCheckIns = summary.isLoading ? "..." : String(summary.data?.checkInCount ?? 0);
+  const uniqueBars = summary.isLoading ? "..." : String(summary.data?.barsVisited ?? 0);
+  const avgRating = summary.isLoading ? "..." : summary.data?.averageRating?.toFixed(1) ?? "-";
 
   return (
     <Screen title="Diary" subtitle="Your personal drinking archive.">
@@ -286,9 +358,33 @@ function DiaryScreen() {
         </button>
       </div>
       <div className="stats-grid">
-        <Stat label="TOTAL LOGS" value={summary.isLoading ? "..." : String(summary.data?.checkInCount ?? 0)} />
-        <Stat label="EXPLORED" value={summary.isLoading ? "..." : String(summary.data?.barsVisited ?? 0)} />
-        <Stat label="AVG RATING" value={summary.isLoading ? "..." : summary.data?.averageRating?.toFixed(1) ?? "-"} />
+        <Stat
+          active={activeStatFilter === "all"}
+          icon={<Wine size={16} />}
+          label="TOTAL LOGS"
+          onClick={() => setActiveStatFilter((current) => current === "all" ? null : "all")}
+          statusLabel="ALL"
+          unit="LOGS"
+          value={totalCheckIns}
+        />
+        <Stat
+          active={activeStatFilter === "bar"}
+          icon={<MapPin size={16} />}
+          label="EXPLORED"
+          onClick={() => setActiveStatFilter((current) => current === "bar" ? null : "bar")}
+          statusLabel="BAR"
+          unit="BARS"
+          value={uniqueBars}
+        />
+        <Stat
+          active={activeStatFilter === "rating"}
+          icon={<Star size={16} />}
+          label="AVG RATING"
+          onClick={() => setActiveStatFilter((current) => current === "rating" ? null : "rating")}
+          statusLabel="RATING"
+          unit="PTS"
+          value={avgRating}
+        />
       </div>
       <CalendarStrip
         days={Array.isArray(calendar.data) ? calendar.data : []}
@@ -975,7 +1071,7 @@ function MapPreview({ bars, region, userCoordinate }: { bars: Array<Bar & { disp
       <div className="map-user" style={project(userCoordinate)}><LocateFixed size={14} /></div>
       {bars.filter((bar) => typeof bar.lat === "number" && typeof bar.lng === "number").map((bar, index) => (
         <div className="map-pin" key={bar.id} style={project({ lat: bar.lat!, lng: bar.lng! })}>
-          <span>{index + 1}</span>
+          <span><b>{index + 1}</b></span>
         </div>
       ))}
     </div>
@@ -1024,8 +1120,35 @@ function Field({ children, label }: { children: ReactNode; label: string }) {
   return <label className="field"><span>{label}</span>{children}</label>;
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
-  return <div className="stat-card"><Sparkles size={16} /><strong>{value}</strong><span>{label}</span></div>;
+function Stat({
+  active,
+  icon,
+  label,
+  onClick,
+  statusLabel,
+  unit,
+  value
+}: {
+  active: boolean;
+  icon: ReactNode;
+  label: string;
+  onClick: () => void;
+  statusLabel: string;
+  unit: string;
+  value: string;
+}) {
+  return (
+    <button className={`stat-card ${active ? "active" : ""}`} onClick={onClick} type="button">
+      <span className="stat-topline">
+        <span className="stat-icon">{icon}</span>
+        {active ? <i className="stat-pulse" /> : <em>{statusLabel}</em>}
+      </span>
+      <span className="stat-body">
+        <strong>{value}<small>{unit}</small></strong>
+        <span>{label}</span>
+      </span>
+    </button>
+  );
 }
 
 function CalendarStrip({

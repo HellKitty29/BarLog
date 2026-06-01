@@ -220,10 +220,10 @@ button {
 
 .auth-screen {
   min-height: 100dvh;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
+  align-content: center;
+  display: grid;
   gap: 24px;
+  grid-template-rows: 96px 492px;
   padding: 42px 8px;
 }
 
@@ -232,6 +232,8 @@ button {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  height: 96px;
+  justify-content: center;
 }
 
 .brand-block span {
@@ -254,7 +256,9 @@ button {
 .auth-card {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
+  height: 492px;
+  overflow: hidden;
 }
 
 .switcher,
@@ -288,6 +292,24 @@ button {
 .field {
   display: grid;
   gap: 7px;
+}
+
+.auth-register-field {
+  height: 0;
+  margin-bottom: -14px;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+  transform: translateY(-4px);
+  transition: height 180ms ease, margin-bottom 180ms ease, opacity 180ms ease, transform 180ms ease;
+}
+
+.auth-register-field.is-visible {
+  height: 66px;
+  margin-bottom: 0;
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
 }
 
 .field span {
@@ -329,6 +351,24 @@ button {
   margin: 0;
 }
 
+.auth-message-slot {
+  color: #fecaca;
+  font-size: 12px;
+  font-weight: 800;
+  height: 18px;
+  line-height: 18px;
+  margin: 0;
+  opacity: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: opacity 160ms ease;
+  white-space: nowrap;
+}
+
+.auth-message-slot.is-visible {
+  opacity: 1;
+}
+
 .primary-button,
 .secondary-button,
 .permission-button {
@@ -350,6 +390,35 @@ button {
   color: #fff4ec;
 }
 
+.google-login-button {
+  align-items: center;
+  background: #21100e;
+  border: 1px solid rgba(198, 131, 52, 0.25);
+  border-radius: 16px;
+  color: #d8cfc6;
+  display: inline-flex;
+  gap: 10px;
+  justify-content: center;
+  min-height: 50px;
+  padding: 0 16px;
+  width: 100%;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.google-login-button span {
+  align-items: center;
+  background: #2b1d1a;
+  border: 1px solid #3a2a26;
+  border-radius: 999px;
+  color: #d8cfc6;
+  display: inline-flex;
+  font-size: 16px;
+  height: 24px;
+  justify-content: center;
+  width: 24px;
+}
+
 .secondary-button,
 .permission-button {
   background: #21100e;
@@ -357,7 +426,8 @@ button {
   color: #faf6ee;
 }
 
-.primary-button:disabled {
+.primary-button:disabled,
+.google-login-button:disabled {
   opacity: 0.6;
 }
 
@@ -455,33 +525,128 @@ button {
 }
 
 .stat-card {
-  background: linear-gradient(180deg, #1d0c0b, #100807);
-  border: 1px solid rgba(74, 23, 21, 0.7);
+  align-items: stretch;
+  background: rgba(18, 9, 8, 0.42);
+  border: 1px solid rgba(74, 23, 21, 0.14);
   border-radius: 16px;
-  display: grid;
-  gap: 8px;
-  min-height: 112px;
+  box-shadow: none;
+  color: #faf6ee;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 124px;
   padding: 12px;
+  position: relative;
+  text-align: left;
+  transition: background-color 300ms ease, border-color 300ms ease, box-shadow 300ms ease, transform 300ms ease, scale 300ms ease;
 }
 
-.stat-card svg {
+.stat-card:hover {
+  background: rgba(30, 17, 16, 0.62);
+  border-color: rgba(139, 30, 25, 0.28);
+  transform: translateY(-2px);
+}
+
+.stat-card.active {
+  background: #2b0e0d;
+  border-color: #8b1e19;
+  box-shadow: 0 4px 20px rgba(139, 30, 25, 0.2);
+  outline: 1px solid #8b1e19;
+  scale: 1.03;
+}
+
+.stat-topline {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  width: 100%;
+}
+
+.stat-icon {
+  align-items: center;
+  background: #1d0c0b;
+  border-radius: 8px;
+  color: #8e7e73;
+  display: flex;
+  height: 28px;
+  justify-content: center;
+  width: 28px;
+}
+
+.stat-card.active .stat-icon {
+  background: rgba(139, 30, 25, 0.3);
   color: #c68334;
 }
 
+.stat-topline em {
+  color: #5a4f48;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 8px;
+  font-style: normal;
+  font-weight: 900;
+}
+
+.stat-pulse {
+  animation: stat-pulse 1400ms ease-in-out infinite;
+  background: #cd2e26;
+  border-radius: 999px;
+  display: inline-block;
+  height: 8px;
+  width: 8px;
+}
+
+.stat-body {
+  display: grid;
+  gap: 8px;
+}
+
 .stat-card strong {
+  align-items: baseline;
   color: #faf6ee;
-  font-size: 28px;
+  display: flex;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 30px;
+  font-style: italic;
+  font-weight: 900;
+  gap: 2px;
+  letter-spacing: -0.01em;
+  line-height: 1;
+}
+
+.stat-card small {
+  color: #8e7e73;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 400;
+  text-transform: uppercase;
+}
+
+.stat-body > span {
+  color: #ebe4d5;
+  font-size: 9px;
   font-weight: 900;
   line-height: 1;
 }
 
-.stat-card span {
-  color: #ebe4d5;
-  font-size: 9px;
-  font-weight: 900;
+@keyframes stat-pulse {
+  0%, 100% {
+    opacity: 0.45;
+    transform: scale(0.82);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scale(1.12);
+  }
 }
 
 .calendar-card {
+  background: rgba(18, 9, 8, 0.42);
+  border: 0;
+  box-shadow: none;
   display: grid;
   gap: 14px;
 }
@@ -493,8 +658,8 @@ button {
 }
 
 .rope-scroll {
-  background: #090302;
-  border: 1px solid #2d1614;
+  background: rgba(9, 3, 2, 0.36);
+  border: 0;
   border-radius: 16px;
   display: flex;
   gap: 12px;
@@ -915,7 +1080,6 @@ button {
   background: #bd2b25;
   border: 2px solid #c68334;
   border-radius: 12px 12px 12px 4px;
-  color: #fff;
   display: flex;
   font-size: 11px;
   font-weight: 900;
@@ -923,6 +1087,13 @@ button {
   justify-content: center;
   transform: rotate(-45deg);
   width: 28px;
+}
+
+.map-pin b {
+  color: #fff;
+  display: block;
+  line-height: 1;
+  transform: rotate(45deg);
 }
 
 .bar-card {
