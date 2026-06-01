@@ -9,6 +9,7 @@ import { useGalleryFeedQuery } from "@/features/gallery/gallery.queries";
 import { colors, spacing, typography } from "@/theme";
 import type { GalleryFeedParams } from "@/features/gallery/gallery.types";
 import { ApiError } from "@/services/api/error-handler";
+import { resolveMediaUrl } from "@/services/media/resolve-media-url";
 
 type GalleryFeedListProps = {
   emptyTitle?: string;
@@ -18,6 +19,28 @@ type GalleryFeedListProps = {
 const defaultFeedParams: GalleryFeedParams = {
   range: "7d"
 };
+
+type GalleryImagePost = {
+  imageUrl?: string;
+  cardImageUrl?: string;
+  photoUrl?: string;
+  uploadedPhotoUrl?: string;
+  generatedCardUri?: string;
+  mediaUrl?: string;
+  thumbnailUrl?: string;
+};
+
+function getPostImageUrl(post: GalleryImagePost) {
+  return resolveMediaUrl(
+    post.imageUrl ??
+      post.cardImageUrl ??
+      post.photoUrl ??
+      post.uploadedPhotoUrl ??
+      post.generatedCardUri ??
+      post.mediaUrl ??
+      post.thumbnailUrl
+  );
+}
 
 function resolveFeedError(error: unknown) {
   if (!(error instanceof ApiError)) {
@@ -92,10 +115,13 @@ export function GalleryFeedList({
 
   return (
     <View style={styles.list}>
-      {feed.data.items.map((post) => (
-        <AppCard key={post.id}>
-          <View style={styles.post}>
-            <Image source={{ uri: post.imageUrl }} style={styles.thumbnail} />
+      {feed.data.items.map((post) => {
+        const imageUrl = getPostImageUrl(post);
+
+        return (
+          <AppCard key={post.id}>
+            <View style={styles.post}>
+              {imageUrl ? <Image source={{ uri: imageUrl }} style={styles.thumbnail} /> : <View style={styles.thumbnail} />}
             <View style={styles.body}>
               <View style={styles.titleRow}>
                 <Text numberOfLines={1} style={styles.author}>
@@ -112,7 +138,8 @@ export function GalleryFeedList({
             </View>
           </View>
         </AppCard>
-      ))}
+        );
+      })}
     </View>
   );
 }
