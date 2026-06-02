@@ -42,6 +42,7 @@ import { useDrunkTiStore } from "@/features/persona/drunkti.store";
 import { sipApi } from "@/features/sip/sip.api";
 import { uploadApi } from "@/features/upload/upload.api";
 import { createImageFormData, compressImageForUpload } from "@/features/upload/upload.helpers";
+import { getDefaultAvatarDataUri } from "@/services/media/default-avatars";
 import { resolveMediaUrl } from "@/services/media/resolve-media-url";
 import { diaryFilterOptions, filterDiaryLogs, getDiaryAnchorDate, getSelectedDiaryDay, type DiaryFilterKey } from "@/web/diary-utils";
 import { clearTokens, setAccessToken, setRefreshToken } from "@/services/storage/token-storage";
@@ -55,8 +56,35 @@ type DiscoverMode = "gallery" | "bars";
 type MeMode = "profile" | "diary";
 type DiaryStatFilter = "all" | "bar" | "rating" | null;
 type Coordinates = { lat: number; lng: number };
+type GenderPreference = "female" | "male" | "secret";
+type MbtiAxis = "energy" | "mind" | "nature" | "tactics";
 
 const drinkCategories: DrinkCategory[] = ["cocktail", "whisky", "wine", "beer", "other"];
+const googleAuthModeKey = "barlog.auth.googleMode";
+
+const spiritPreferenceOptions = [
+  { id: "gin", title: "Gin", emoji: "🍸", description: "Crisp, botanical, refreshing" },
+  { id: "vodka", title: "Vodka", emoji: "🥛", description: "Clean, neutral, highly versatile" },
+  { id: "whiskey", title: "Whiskey", emoji: "🥃", description: "Rich, smoky, oak aged" },
+  { id: "rum", title: "Rum", emoji: "🍹", description: "Sweet, tropical, warm cane" },
+  { id: "tequila", title: "Tequila", emoji: "🌵", description: "Vibrant, agave-earthy, wild" },
+  { id: "brandy", title: "Brandy", emoji: "🍇", description: "Velvet, fruit-distilled, majestic" }
+] as const;
+
+const drinkingCategoryOptions = [
+  { id: "cocktails", title: "Cocktails", emoji: "🍹", description: "Artisanal mixology and balanced complexity" },
+  { id: "wine", title: "Wine", emoji: "🍷", description: "Vines, terroir, and refined elegance" },
+  { id: "whiskey", title: "Whiskey Neat", emoji: "🥃", description: "Pure single malts and barrel exploration" },
+  { id: "craft-beer", title: "Craft Beer", emoji: "🍺", description: "Hoppy IPAs, stouts, and local brewer culture" },
+  { id: "beer", title: "Beer", emoji: "🍻", description: "Crisp lagers and easy-drinking socials" }
+] as const;
+
+const mbtiAxisOptions = {
+  energy: { label: "Energy", left: ["E", "Extra"], right: ["I", "Intro"] },
+  mind: { label: "Mind", left: ["S", "Sensing"], right: ["N", "Intuitor"] },
+  nature: { label: "Nature", left: ["T", "Think"], right: ["F", "Feel"] },
+  tactics: { label: "Tactics", left: ["J", "Judge"], right: ["P", "Perceive"] }
+} as const;
 
 type BarAdSlide = {
   id: string;
@@ -168,8 +196,9 @@ export function App() {
       </main>
       <nav className="tabbar" aria-label="Main navigation">
         <TabButton active={tab === "discover"} icon={<Compass />} label="Discover" onClick={() => setTab("discover")} />
-        <button className="sip-tab" type="button" aria-label="Open camera check-in" onClick={() => setTab("check-in")}>
+        <button className="sip-tab" type="button" aria-label="Open check-in" onClick={() => setTab("check-in")}>
           <Camera />
+          <span>CheckIn</span>
         </button>
         <TabButton active={tab === "clink"} icon={<ClinkIcon />} label="Clink" onClick={() => setTab("clink")} />
         <TabButton active={tab === "me"} icon={<User />} label="Me" onClick={() => setTab("me")} />
@@ -246,6 +275,7 @@ function LoginScreen({ onAuthed }: { onAuthed: (user: UserType) => void }) {
   const [message, setMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [pendingOnboardingUser, setPendingOnboardingUser] = useState<UserType | null>(null);
 
   useEffect(() => {
     const query = new URLSearchParams(window.location.search);
@@ -266,7 +296,15 @@ function LoginScreen({ onAuthed }: { onAuthed: (user: UserType) => void }) {
     setGoogleLoading(true);
     setMessage("Finishing Google sign-in...");
     void completeAuthResponse(authApi.completeGoogleAuth({ accessToken, refreshToken }))
-      .then(onAuthed)
+      .then((nextUser) => {
+        const googleMode = window.sessionStorage.getItem(googleAuthModeKey);
+        window.sessionStorage.removeItem(googleAuthModeKey);
+        if (googleMode === "register") {
+          setPendingOnboardingUser(nextUser);
+          return;
+        }
+        onAuthed(nextUser);
+      })
       .catch((authError) => {
         setMessage(authError instanceof Error ? authError.message : "Unable to finish Google sign-in.");
       })
@@ -292,6 +330,10 @@ function LoginScreen({ onAuthed }: { onAuthed: (user: UserType) => void }) {
         ? await authApi.login({ email: nextEmail, password })
         : await authApi.register({ displayName: nextName, email: nextEmail, password });
       const nextUser = await persistAuthResponse(response, nextEmail);
+      if (mode === "register") {
+        setPendingOnboardingUser(nextUser);
+        return;
+      }
       onAuthed(nextUser);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Unable to authenticate.");
@@ -307,11 +349,24 @@ function LoginScreen({ onAuthed }: { onAuthed: (user: UserType) => void }) {
     try {
       const redirectUri = `${window.location.origin}/auth/google/callback`;
       const { authUrl } = await authApi.startGoogleAuth({ redirectUri, mode });
+      window.sessionStorage.setItem(googleAuthModeKey, mode);
       window.location.assign(authUrl);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Unable to open Google sign-in.");
       setGoogleLoading(false);
     }
+  }
+
+  if (pendingOnboardingUser) {
+    return (
+      <OnboardingSurvey
+        user={pendingOnboardingUser}
+        onComplete={(survey) => {
+          window.localStorage.setItem("barlog.onboarding.preferences", JSON.stringify(survey));
+          onAuthed(pendingOnboardingUser);
+        }}
+      />
+    );
   }
 
   return (
@@ -347,6 +402,151 @@ function LoginScreen({ onAuthed }: { onAuthed: (user: UserType) => void }) {
           {googleLoading ? "Opening Google..." : "Enter with Google"}
         </button>
       </section>
+    </div>
+  );
+}
+
+function OnboardingSurvey({
+  onComplete,
+  user
+}: {
+  onComplete: (survey: {
+    category: string;
+    gender: GenderPreference;
+    mbti: string;
+    spirits: string[];
+    userId: string;
+  }) => void;
+  user: UserType;
+}) {
+  const [step, setStep] = useState(0);
+  const [spirits, setSpirits] = useState<string[]>([]);
+  const [category, setCategory] = useState("");
+  const [gender, setGender] = useState<GenderPreference>("secret");
+  const [mbti, setMbti] = useState<Record<MbtiAxis, "left" | "right">>({
+    energy: "right",
+    mind: "right",
+    nature: "right",
+    tactics: "right"
+  });
+  const displayName = user.displayName || "XX";
+  const canContinue = step === 0 ? spirits.length > 0 : step === 1 ? Boolean(category) : true;
+  const mbtiCode = (Object.entries(mbti) as Array<[MbtiAxis, "left" | "right"]>)
+    .map(([axis, side]) => mbtiAxisOptions[axis][side][0])
+    .join("");
+
+  const toggleSpirit = (id: string) => {
+    setSpirits((current) =>
+      current.includes(id) ? current.filter((item) => item !== id) : [...current, id]
+    );
+  };
+  const next = () => {
+    if (step < 2) {
+      setStep((current) => current + 1);
+      return;
+    }
+
+    onComplete({
+      category,
+      gender,
+      mbti: mbtiCode,
+      spirits,
+      userId: user.id
+    });
+  };
+
+  return (
+    <main className="onboarding-screen">
+      <header className="onboarding-top">
+        <span>WELCOME, {displayName.toUpperCase()}</span>
+        <strong>STEP {step + 1} OF 3</strong>
+        <div>
+          {[0, 1, 2].map((item) => <i className={item <= step ? "active" : ""} key={item} />)}
+        </div>
+      </header>
+
+      <section className="onboarding-content">
+        {step === 0 ? (
+          <>
+            <OnboardingIntro kicker="FLAVOR PREFERENCE · SPIRITS" title="Which base spirits do you prefer?" body="Select multiple to help us discover your unique soul-flavor recipe tonight." />
+            <div className="onboarding-spirit-grid">
+              {spiritPreferenceOptions.map((option) => (
+                <button className={spirits.includes(option.id) ? "active" : ""} key={option.id} onClick={() => toggleSpirit(option.id)} type="button">
+                  <strong>{option.title} <span>{option.emoji}</span></strong>
+                  <small>{option.description}</small>
+                </button>
+              ))}
+            </div>
+          </>
+        ) : null}
+
+        {step === 1 ? (
+          <>
+            <OnboardingIntro kicker="DAILY SELECTION · CATEGORY" title="What are you looking for tonight?" body="Your personalized drinking guidelines. Select one key category." />
+            <div className="onboarding-category-list">
+              {drinkingCategoryOptions.map((option) => (
+                <button className={category === option.id ? "active" : ""} key={option.id} onClick={() => setCategory(option.id)} type="button">
+                  <i>✧</i>
+                  <span>
+                    <strong>{option.title} {option.emoji}</strong>
+                    <small>{option.description}</small>
+                  </span>
+                </button>
+              ))}
+            </div>
+          </>
+        ) : null}
+
+        {step === 2 ? (
+          <>
+            <div className="onboarding-choice-section">
+              <span className="onboarding-dot-label">GENDER IDENTIFICATION</span>
+              <div className="onboarding-gender-row">
+                {(["female", "male", "secret"] as GenderPreference[]).map((item) => (
+                  <button className={gender === item ? "active" : ""} key={item} onClick={() => setGender(item)} type="button">
+                    {item === "female" ? "👩 Female" : item === "male" ? "👨 Male" : "✦ Secret"}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="onboarding-choice-section">
+              <span className="onboarding-dot-label">DRUNKTI CHEMICAL (MBTI) <b>{mbtiCode}</b></span>
+              <div className="onboarding-mbti-card">
+                {(Object.entries(mbtiAxisOptions) as Array<[MbtiAxis, typeof mbtiAxisOptions[MbtiAxis]]>).map(([axis, axisOption]) => (
+                  <div className="onboarding-mbti-row" key={axis}>
+                    <span>{axisOption.label}</span>
+                    <div>
+                      {(["left", "right"] as const).map((side) => (
+                        <button className={mbti[axis] === side ? "active" : ""} key={side} onClick={() => setMbti((current) => ({ ...current, [axis]: side }))} type="button">
+                          {axisOption[side][0]} ({axisOption[side][1]})
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </>
+        ) : null}
+      </section>
+
+      <footer className="onboarding-actions">
+        {step > 0 ? <button className="onboarding-back" onClick={() => setStep((current) => current - 1)} type="button">BACK</button> : null}
+        <button className="onboarding-next" disabled={!canContinue} onClick={next} type="button">
+          {step === 2 ? "BEGIN BAR JOURNEY ✨" : "NEXT STEP ›"}
+        </button>
+      </footer>
+    </main>
+  );
+}
+
+function OnboardingIntro({ body, kicker, title }: { body: string; kicker: string; title: string }) {
+  return (
+    <div className="onboarding-intro">
+      <span>{kicker}</span>
+      <h1>{title}</h1>
+      <p>{body}</p>
     </div>
   );
 }
@@ -483,8 +683,14 @@ function DiscoverScreen() {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [activeAdIndex, setActiveAdIndex] = useState(0);
   const [boozerMapOpen, setBoozerMapOpen] = useState(false);
+  const [barQuestionDraft, setBarQuestionDraft] = useState("");
+  const [barQuestion, setBarQuestion] = useState("");
   const referenceCoords = coords ?? defaultDiscoveryCoordinates;
-  const params = useMemo(() => createNearbyBarsParams(referenceCoords), [referenceCoords]);
+  const params = useMemo(() => {
+    const baseParams = createNearbyBarsParams(referenceCoords);
+    const query = barQuestion.trim();
+    return query ? { ...baseParams, query } : baseParams;
+  }, [barQuestion, referenceCoords]);
   const nearby = useNearbyBarsQuery(params, { enabled: mode === "bars" });
   const bars = (nearby.data?.items ?? []).map((bar) => ({
     ...bar,
@@ -519,6 +725,36 @@ function DiscoverScreen() {
           />
           {/* MapPreview temporarily replaced by BarAdCarousel.
           <MapPreview bars={bars} region={region} userCoordinate={referenceCoords} /> */}
+          <form
+            className="bar-question-search"
+            onSubmit={(event) => {
+              event.preventDefault();
+              setBarQuestion(barQuestionDraft.trim());
+            }}
+          >
+            <div>
+              <Sparkles size={15} />
+              <input
+                value={barQuestionDraft}
+                onChange={(event) => setBarQuestionDraft(event.target.value)}
+                placeholder="Ask for a bar: quiet jazz, date night, craft beer nearby..."
+              />
+              {barQuestionDraft ? (
+                <button
+                  aria-label="Clear bar search"
+                  type="button"
+                  onClick={() => {
+                    setBarQuestionDraft("");
+                    setBarQuestion("");
+                  }}
+                >
+                  <X size={14} />
+                </button>
+              ) : null}
+            </div>
+            <button type="submit">Search</button>
+          </form>
+          {barQuestion ? <StatusCard label={`Searching bars for: ${barQuestion}`} /> : null}
           {!coords ? <StatusCard label="Showing the default Shanghai map until browser location permission is available." /> : null}
           <button className="permission-button" type="button" onClick={() => requestLocation(setCoords, setLocating, setLocationError)}>
             <LocateFixed size={16} />
@@ -556,9 +792,13 @@ function ClinkScreen() {
     </div>
   );
 
-  return mode === "match"
-    ? <Screen title="Clink" subtitle="Match and chat with tonight's drinking buddies.">{beforeContent}<MatchPanel conversations={conversations} /></Screen>
-    : <Screen title="Clink" subtitle="Match and chat with tonight's drinking buddies.">{beforeContent}<ChatPanel conversations={conversations} /></Screen>;
+  return (
+    <section className="screen clink-screen">
+      <PageHeader title="Clink" subtitle="Match and chat with tonight's drinking buddies." />
+      {beforeContent}
+      {mode === "match" ? <MatchPanel conversations={conversations} /> : <ChatPanel conversations={conversations} />}
+    </section>
+  );
 }
 
 function SipScreen({ onPublished }: { onPublished: () => void }) {
@@ -679,7 +919,7 @@ function SipScreen({ onPublished }: { onPublished: () => void }) {
   }
 
   return (
-    <Screen title="Sip" subtitle="Shoot, generate, flip, and publish.">
+    <Screen title="CheckIn" subtitle="Shoot, generate, flip, and publish.">
       <input ref={fileInputRef} className="hidden-input" type="file" accept="image/*" onChange={(event) => chooseFile(event.target.files?.[0])} />
       {!photo ? (
         <section className="capture-panel">
@@ -753,6 +993,11 @@ function SipScreen({ onPublished }: { onPublished: () => void }) {
 function MeScreen({ user, onLogout }: { user: UserType; onLogout: () => void }) {
   const [mode, setMode] = useState<MeMode>("profile");
   const drunkTiResult = useDrunkTiStore((state) => state.result);
+  const onboarding = getStoredOnboardingPreferences();
+  const avatarSrc = user.avatarUrl ? resolveMediaUrl(user.avatarUrl) : getDefaultAvatarDataUri(user.id || user.email || user.displayName);
+  const mbtiCode = drunkTiResult?.code ?? onboarding?.mbti ?? "INFP";
+  const preferredCategory = formatPreferenceLabel(onboarding?.category ?? "craft-beer");
+  const preferredBases = onboarding?.spirits?.length ? onboarding.spirits.join(", ") : "vodka";
   const beforeContent = (
     <div className="segmented">
       <button className={mode === "profile" ? "active" : ""} onClick={() => setMode("profile")} type="button">Profile</button>
@@ -768,44 +1013,53 @@ function MeScreen({ user, onLogout }: { user: UserType; onLogout: () => void }) 
     <Screen title="Me" subtitle="Profile, settings, and local PWA state.">
       {beforeContent}
       <section className="profile-card">
-        <div className="avatar">{user.displayName.slice(0, 1).toUpperCase()}</div>
-        <h2>{user.displayName}</h2>
-        <p>{user.email ?? "No email returned"}</p>
-        <div className="profile-drunk-ti">
-          {drunkTiResult ? (
-            <>
-              <span>DrunkTI</span>
-              <strong>{drunkTiResult.code} 路 {drunkTiResult.name}</strong>
-              <p>{drunkTiResult.tagline}</p>
-              <div className="profile-drunk-ti-stats">
-                {drunkTiResult.stats.map((stat) => (
-                  <i key={stat.label} style={{ "--stat-color": stat.color, "--stat-value": `${stat.value}%` } as CSSProperties}>
-                    <b>{stat.label}</b>
-                    <em><span /></em>
-                    <small>{stat.value}</small>
-                  </i>
-                ))}
-              </div>
-            </>
-          ) : (
-            <>
-              <span>DrunkTI</span>
-              <strong>Not tested yet</strong>
-              <p>Finish DrunkTI from Diary to show your drinking archetype here.</p>
-            </>
-          )}
+        <img className="profile-avatar" src={avatarSrc} alt="" />
+        <div className="profile-main">
+          <div className="profile-name-row">
+            <h2>{user.displayName}</h2>
+            <span>LV.13</span>
+            <em>{mbtiCode}</em>
+          </div>
+          <p>{user.email ?? "No email returned"}</p>
+          <strong>🏆 MIDNIGHT EXPLORER</strong>
+          <div className="profile-chip-row">
+            <i>✦ {onboarding?.gender ? formatPreferenceLabel(onboarding.gender) : "Secret"}</i>
+            <i className="active">{preferredCategory}</i>
+            <i>Bases: {preferredBases}</i>
+          </div>
         </div>
+        <button className="profile-logout-icon" type="button" onClick={onLogout} aria-label="Log out">
+          <LogOut size={19} />
+        </button>
       </section>
-      <button className="secondary-button" type="button" onClick={onLogout}>
-        <LogOut size={16} />
-        Log out
-      </button>
     </Screen>
   );
 }
 
+function getStoredOnboardingPreferences():
+  | { category?: string; gender?: string; mbti?: string; spirits?: string[] }
+  | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  try {
+    return JSON.parse(window.localStorage.getItem("barlog.onboarding.preferences") ?? "null");
+  } catch {
+    return null;
+  }
+}
+
+function formatPreferenceLabel(value: string) {
+  return value
+    .split("-")
+    .map((part) => part.slice(0, 1).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
 function CommunityFeed() {
   const feed = useGalleryFeedQuery({ city: "Shanghai", range: "24h" });
+  const [selectedAuthor, setSelectedAuthor] = useState<GalleryAuthorPost | null>(null);
   const [likedPosts, setLikedPosts] = useState<Set<string>>(() => {
     try {
       return new Set(JSON.parse(window.localStorage.getItem("barlog.community.likedPosts") ?? "[]"));
@@ -878,7 +1132,9 @@ function CommunityFeed() {
               <div className="feed-card-body">
                 <div className="feed-card-top">
                   <span>
-                    <strong>{post.authorName}</strong>
+                    <button className="feed-author-button" type="button" onClick={() => setSelectedAuthor(post)}>
+                      {post.authorName}
+                    </button>
                     <small>{post.barName ?? post.city ?? "Tonight"}</small>
                   </span>
                   <button
@@ -899,9 +1155,34 @@ function CommunityFeed() {
         })}
       </div>
       {!feed.isLoading && !(feed.data?.items ?? []).length ? <StatusCard label="No community posts returned." /> : null}
+      {selectedAuthor ? (
+        <div className="gallery-user-popover-scrim" role="dialog" aria-modal="true" aria-label={`${selectedAuthor.authorName} profile`}>
+          <section className="gallery-user-popover">
+            <button className="gallery-user-popover-close" type="button" onClick={() => setSelectedAuthor(null)} aria-label="Close profile">
+              <X size={15} />
+            </button>
+            <img src={getDefaultAvatarDataUri(selectedAuthor.userId || selectedAuthor.authorName)} alt="" />
+            <div>
+              <strong>{selectedAuthor.authorName}</strong>
+              <span>{selectedAuthor.city ?? "Tonight City"}</span>
+            </div>
+            <p>{selectedAuthor.caption?.trim() || `Shared from ${selectedAuthor.barName ?? "a late-night check-in"}.`}</p>
+            <small>{selectedAuthor.barName ?? "BarLog member"} · {formatShortDate(selectedAuthor.createdAt)}</small>
+          </section>
+        </div>
+      ) : null}
     </>
   );
 }
+
+type GalleryAuthorPost = CommunityImagePost & {
+  authorName: string;
+  barName?: string;
+  caption?: string;
+  city?: string;
+  createdAt: string;
+  userId: string;
+};
 
 type CommunityImagePost = {
   cardImageUrl?: string;
@@ -943,6 +1224,7 @@ function MatchPanel({ conversations }: { conversations: ReturnType<typeof useCon
   const [activeCandidate, setActiveCandidate] = useState<MatchCandidate | null>(null);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [messageDraft, setMessageDraft] = useState("");
+  const [helloCard, setHelloCard] = useState<{ candidate: MatchCandidate; conversationId: string } | null>(null);
   const [savedChatIds, setSavedChatIds] = useState<string[]>(() => {
     try {
       return JSON.parse(window.localStorage.getItem("barlog.match.savedChats") ?? "[]");
@@ -953,8 +1235,7 @@ function MatchPanel({ conversations }: { conversations: ReturnType<typeof useCon
   const messages = useConversationMessagesQuery(activeConversationId ?? "");
   const connect = useMutation({
     mutationFn: (userId: string) => matchApi.connect(userId),
-    onSuccess: (result) => {
-      setActiveConversationId(result.conversationId);
+    onSuccess: () => {
       void conversations.refetch();
     }
   });
@@ -995,12 +1276,28 @@ function MatchPanel({ conversations }: { conversations: ReturnType<typeof useCon
     window.localStorage.setItem("barlog.match.savedChats", JSON.stringify(savedChatIds));
   }, [savedChatIds]);
 
-  const openChat = (candidate: MatchCandidate) => {
-    setActiveCandidate(candidate);
+  const openChat = async (candidate: MatchCandidate) => {
     setSavedChatIds((current) => [candidate.id, ...current.filter((id) => id !== candidate.id)].slice(0, 3));
-    setActiveConversationId(null);
+    try {
+      const result = await connect.mutateAsync(candidate.id);
+      setHelloCard({ candidate, conversationId: result.conversationId });
+      void conversations.refetch();
+    } catch {
+      setActiveCandidate(candidate);
+      setActiveConversationId(null);
+      setMessageDraft("");
+    }
+  };
+
+  const sayHello = () => {
+    if (!helloCard) {
+      return;
+    }
+
+    setActiveCandidate(helloCard.candidate);
+    setActiveConversationId(helloCard.conversationId);
     setMessageDraft("");
-    connect.mutate(candidate.id);
+    setHelloCard(null);
   };
 
   const submitMessage = () => {
@@ -1032,7 +1329,7 @@ function MatchPanel({ conversations }: { conversations: ReturnType<typeof useCon
           </button>
           <div className="match-chat-person">
             <div className="match-chat-avatar" style={{ "--avatar-color": profile.avatarColor } as CSSProperties}>
-              {activeCandidate.avatarUrl ? <img src={resolveMediaUrl(activeCandidate.avatarUrl)} alt="" /> : profile.emoji}
+              <img src={activeCandidate.avatarUrl ? resolveMediaUrl(activeCandidate.avatarUrl) : getDefaultAvatarDataUri(activeCandidate.id || activeCandidate.displayName)} alt="" />
             </div>
             <span>
               <strong>{activeCandidate.displayName}</strong>
@@ -1093,11 +1390,6 @@ function MatchPanel({ conversations }: { conversations: ReturnType<typeof useCon
 
   return (
     <section className="clink-panel">
-      <div className="clink-radar-card">
-        <span />
-        <strong>Scanning compatible local sippers...</strong>
-        <small>DrunkTI chemistry active: INFP</small>
-      </div>
       <SectionLabel icon={<ClinkIcon />} label="HIGHEST CHEMISTRY MATCHES TONIGHT" />
       {candidates.isLoading ? <StatusCard label="Loading nearby drinking buddies" /> : null}
       {candidates.isError ? <StatusCard tone="error" label={candidates.error.message} /> : null}
@@ -1108,7 +1400,7 @@ function MatchPanel({ conversations }: { conversations: ReturnType<typeof useCon
             {savedCandidates.map((candidate) => (
               <button key={candidate.id} type="button" onClick={() => openChat(candidate)}>
                 <span className="match-saved-avatar">
-                  {candidate.avatarUrl ? <img src={resolveMediaUrl(candidate.avatarUrl)} alt="" /> : candidate.displayName.slice(0, 1).toUpperCase()}
+                  <img src={candidate.avatarUrl ? resolveMediaUrl(candidate.avatarUrl) : getDefaultAvatarDataUri(candidate.id || candidate.displayName)} alt="" />
                 </span>
                 {candidate.displayName}
               </button>
@@ -1125,11 +1417,7 @@ function MatchPanel({ conversations }: { conversations: ReturnType<typeof useCon
           <article className="clink-match-card" key={candidate.id}>
             <div className="clink-match-main">
               <div className="match-avatar" style={{ "--avatar-color": profile.avatarColor } as CSSProperties}>
-                {candidate.avatarUrl ? (
-                  <img src={resolveMediaUrl(candidate.avatarUrl)} alt="" />
-                ) : (
-                  profile.emoji
-                )}
+                <img src={candidate.avatarUrl ? resolveMediaUrl(candidate.avatarUrl) : getDefaultAvatarDataUri(candidate.id || candidate.displayName)} alt="" />
               </div>
               <div className="clink-match-body">
                 <div className="clink-match-title">
@@ -1147,7 +1435,12 @@ function MatchPanel({ conversations }: { conversations: ReturnType<typeof useCon
               </div>
             </div>
             <blockquote>{candidate.reason ?? profile.quote}</blockquote>
-            <button className={`match-chat-button ${clinked ? "is-clinked" : ""}`} type="button" onClick={() => openChat(candidate)}>
+            <button
+              className={`match-chat-button ${clinked ? "is-clinked" : ""}`}
+              type="button"
+              disabled={connect.isPending}
+              onClick={() => void openChat(candidate)}
+            >
               <ClinkIcon />
               {clinked ? "CLINKED - CHAT NOW" : "CLINK GLASSES"}
             </button>
@@ -1156,6 +1449,20 @@ function MatchPanel({ conversations }: { conversations: ReturnType<typeof useCon
         })}
         {!candidates.isLoading && !(candidates.data ?? []).length ? <StatusCard label="No match candidates returned." /> : null}
       </div>
+      {helloCard ? (
+        <div className="clink-hello-scrim" role="dialog" aria-modal="true" aria-label="Glasses clinked">
+          <section className="clink-hello-card">
+            <div className="clink-hello-icon"><ClinkIcon size={24} /></div>
+            <h2>GLASSES CLINKED!</h2>
+            <span>DIRECT PATHWAY OPENED</span>
+            <p>
+              You matched with <strong>{helloCard.candidate.displayName}</strong>. Her taste profile aligned perfectly with yours!
+            </p>
+            <button className="clink-hello-primary" type="button" onClick={sayHello}>Say Hello</button>
+            <button className="clink-hello-dismiss" type="button" onClick={() => setHelloCard(null)}>Dismiss Radar</button>
+          </section>
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -1218,25 +1525,53 @@ function ChatPanel({ conversations }: { conversations: ReturnType<typeof useConv
 
   return (
     <>
-      <SectionLabel icon={<MessageCircle size={17} />} label="CHATS" />
+      <SectionLabel icon={<MessageCircle size={17} />} label="ACTIVE CONVERSATIONS" />
       {conversations.isLoading ? <StatusCard label="Loading chats" /> : null}
       {conversations.isError ? <StatusCard tone="error" label={conversations.error.message} /> : null}
-      <div className="stack">
-        {(conversations.data?.items ?? []).map((conversation) => (
-          <article className="match-card" key={conversation.id}>
-            <div className="match-avatar">
-              <MessageCircle size={21} />
+      <div className="clink-chat-list">
+        {(conversations.data?.items ?? []).map((conversation, index) => {
+          const fallback = getConversationFallbackProfile(index);
+          const name = conversation.peerDisplayName ?? conversation.title;
+
+          return (
+          <article className="match-card clink-conversation-card" key={conversation.id}>
+            <div className="match-avatar" style={{ "--avatar-color": fallback.avatarColor } as CSSProperties}>
+              <img src={conversation.peerAvatarUrl ? resolveMediaUrl(conversation.peerAvatarUrl) : getDefaultAvatarDataUri(conversation.peerUserId || name)} alt="" />
             </div>
-            <div>
-              <strong>{conversation.title}</strong>
-              <span>{conversation.lastMessage}</span>
+            <div className="clink-conversation-body">
+              <strong>{name}</strong>
+              <span>{conversation.lastMessage ?? "Say hello and open the next pour..."}</span>
             </div>
+            <time>{formatConversationTime(conversation.updatedAt)}</time>
+            <ChevronRight size={17} />
           </article>
-        ))}
+        );
+        })}
         {!conversations.isLoading && !(conversations.data?.items ?? []).length ? <StatusCard label="No chats returned." /> : null}
       </div>
     </>
   );
+}
+
+function getConversationFallbackProfile(index: number) {
+  const profiles = [
+    { avatarColor: "#a5211d", emoji: "🧜" },
+    { avatarColor: "#f0a43d", emoji: "🦊" },
+    { avatarColor: "#214b34", emoji: "🥃" }
+  ];
+
+  return profiles[index % profiles.length];
+}
+
+function formatConversationTime(value?: string) {
+  if (!value) {
+    return "";
+  }
+
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime())
+    ? value
+    : parsed.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false });
 }
 
 function BarAdCarousel({
@@ -1251,27 +1586,64 @@ function BarAdCarousel({
   slides: BarAdSlide[];
 }) {
   const activeSlide = slides[activeIndex] ?? slides[0];
+  const dragStartX = useRef<number | null>(null);
+  const didSwipe = useRef(false);
   const goTo = (nextIndex: number) => {
     onChange((nextIndex + slides.length) % slides.length);
   };
+  const startDrag = (clientX: number) => {
+    dragStartX.current = clientX;
+  };
+  const finishDrag = (clientX: number) => {
+    if (dragStartX.current === null) {
+      return;
+    }
+
+    const delta = clientX - dragStartX.current;
+    dragStartX.current = null;
+    if (Math.abs(delta) < 42) {
+      return;
+    }
+
+    didSwipe.current = true;
+    goTo(activeIndex + (delta < 0 ? 1 : -1));
+    window.setTimeout(() => {
+      didSwipe.current = false;
+    }, 200);
+  };
+
+  useEffect(() => {
+    if (!slides.length) {
+      return;
+    }
+
+    const duration = activeSlide.isBoozerMap ? 8000 : 6000;
+    const timer = window.setTimeout(() => {
+      goTo(activeIndex + 1);
+    }, duration);
+
+    return () => window.clearTimeout(timer);
+  }, [activeIndex, activeSlide.isBoozerMap, slides.length]);
 
   return (
     <section className="bar-ad-carousel" aria-label="Bar event ads">
-      <button className="bar-ad-nav prev" type="button" aria-label="Previous event" onClick={() => goTo(activeIndex - 1)}>
-        <ChevronLeft size={17} />
-      </button>
-      <button className="bar-ad-nav next" type="button" aria-label="Next event" onClick={() => goTo(activeIndex + 1)}>
-        <ChevronRight size={17} />
-      </button>
       <article
         className={`bar-ad-slide ${activeSlide.isBoozerMap ? "is-boozer-map" : ""}`}
-        onClick={activeSlide.isBoozerMap ? onOpenBoozerMap : undefined}
+        onMouseDown={(event) => startDrag(event.clientX)}
+        onMouseUp={(event) => finishDrag(event.clientX)}
+        onClick={activeSlide.isBoozerMap ? () => {
+          if (!didSwipe.current) {
+            onOpenBoozerMap();
+          }
+        } : undefined}
         onKeyDown={activeSlide.isBoozerMap ? (event) => {
           if (event.key === "Enter" || event.key === " ") {
             event.preventDefault();
             onOpenBoozerMap();
           }
         } : undefined}
+        onTouchEnd={(event) => finishDrag(event.changedTouches[0]?.clientX ?? 0)}
+        onTouchStart={(event) => startDrag(event.changedTouches[0]?.clientX ?? 0)}
         role={activeSlide.isBoozerMap ? "button" : undefined}
         style={activeSlide.imageUrl ? { "--ad-image": `url(${activeSlide.imageUrl})` } as CSSProperties : undefined}
         tabIndex={activeSlide.isBoozerMap ? 0 : undefined}
@@ -1397,14 +1769,62 @@ function BarCard({ bar, expanded, index, onToggle }: { bar: Bar & { displayDista
   );
 }
 
+function PageHeader({ subtitle, title }: { subtitle: string; title: string }) {
+  const city = useHeaderCity();
+
+  return (
+    <header className="screen-header">
+      <p><b>BarLog</b><i /><MapPin size={10} />{city}</p>
+      <h1>{title}</h1>
+      <span>{subtitle}</span>
+    </header>
+  );
+}
+
+function useHeaderCity() {
+  const [city, setCity] = useState("Shanghai");
+
+  useEffect(() => {
+    if (!navigator.geolocation) {
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setCity(inferCityName(position.coords.latitude, position.coords.longitude));
+      },
+      () => undefined,
+      { enableHighAccuracy: false, maximumAge: 10 * 60 * 1000, timeout: 8000 }
+    );
+  }, []);
+
+  return city;
+}
+
+function inferCityName(lat: number, lng: number) {
+  const knownCities = [
+    { name: "Shanghai", lat: 31.2304, lng: 121.4737 },
+    { name: "Singapore", lat: 1.3521, lng: 103.8198 },
+    { name: "Beijing", lat: 39.9042, lng: 116.4074 },
+    { name: "Shenzhen", lat: 22.5431, lng: 114.0579 },
+    { name: "Guangzhou", lat: 23.1291, lng: 113.2644 },
+    { name: "Hangzhou", lat: 30.2741, lng: 120.1551 },
+    { name: "Chengdu", lat: 30.5728, lng: 104.0668 }
+  ];
+  const nearest = knownCities
+    .map((city) => ({
+      ...city,
+      distance: Math.hypot(city.lat - lat, city.lng - lng)
+    }))
+    .sort((first, second) => first.distance - second.distance)[0];
+
+  return nearest && nearest.distance < 1.2 ? nearest.name : "Current City";
+}
+
 function Screen({ children, subtitle, title }: { children: ReactNode; subtitle: string; title: string }) {
   return (
     <section className="screen">
-      <header className="screen-header">
-        <p>BarLog</p>
-        <h1>{title}</h1>
-        <span>{subtitle}</span>
-      </header>
+      <PageHeader title={title} subtitle={subtitle} />
       {children}
     </section>
   );

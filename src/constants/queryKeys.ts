@@ -3,8 +3,8 @@ export const queryKeys = {
   diarySummary: (month: string) => ["diary", "summary", month] as const,
   diaryCalendar: (month: string) => ["diary", "calendar", month] as const,
   recentSips: ["checkins", "recent"] as const,
-  nearbyBars: (params?: { city?: string; lat?: number; lng?: number; radiusMeters?: number } | null) =>
-    ["bars", "nearby", params?.city, params?.lat, params?.lng, params?.radiusMeters] as const,
+  nearbyBars: (params?: { city?: string; lat?: number; lng?: number; query?: string; radiusMeters?: number } | null) =>
+    ["bars", "nearby", params?.city, params?.lat, params?.lng, params?.query, params?.radiusMeters] as const,
   barDetail: (barId: string) => ["bars", "detail", barId] as const,
   galleryFeed: (params?: { city?: string; range?: string }) =>
     ["gallery", "feed", params?.city ?? "all", params?.range ?? "24h"] as const,

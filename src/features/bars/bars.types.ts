@@ -4,6 +4,7 @@ export type NearbyBarsParams = {
   lat?: number;
   lng?: number;
   city?: string;
+  query?: string;
   radiusMeters?: number;
 };
 
