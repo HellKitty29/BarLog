@@ -41,7 +41,7 @@ import { createDrunkTiResult, drunkTiQuestions, type DrunkTiResult } from "@/fea
 import { useDrunkTiStore } from "@/features/persona/drunkti.store";
 import { sipApi } from "@/features/sip/sip.api";
 import { uploadApi } from "@/features/upload/upload.api";
-import { createImageFormData } from "@/features/upload/upload.helpers";
+import { createImageFormData, compressImageForUpload } from "@/features/upload/upload.helpers";
 import { resolveMediaUrl } from "@/services/media/resolve-media-url";
 import { diaryFilterOptions, filterDiaryLogs, getDiaryAnchorDate, getSelectedDiaryDay, type DiaryFilterKey } from "@/web/diary-utils";
 import { clearTokens, setAccessToken, setRefreshToken } from "@/services/storage/token-storage";
@@ -580,15 +580,13 @@ function SipScreen({ onPublished }: { onPublished: () => void }) {
       if (!photo) {
         throw new Error("Take or upload a photo before publishing.");
       }
-      const formData = createImageFormData(photo.blob, "sip.jpg", photo.blob.type || "image/jpeg");
-      const [photoUpload, cardUpload] = await Promise.all([
-        uploadApi.uploadImage(formData),
-        uploadApi.uploadCardImage(createImageFormData(photo.blob, "sip-card.jpg", photo.blob.type || "image/jpeg"))
-      ]);
+      const compressed = await compressImageForUpload(photo.blob);
+      const formData = createImageFormData(compressed, "sip.jpg", "image/jpeg");
+      const photoUpload = await uploadApi.uploadImage(formData);
       const draft: SipDraft = {
         localPhotoUri: photo.url,
         uploadedPhotoUrl: photoUpload.imageUrl,
-        uploadedCardUrl: cardUpload.imageUrl,
+        uploadedCardUrl: photoUpload.imageUrl,
         drinkName: drinkName.trim() || "Tonight's Sip",
         drinkCategory: category,
         barName: barName.trim() || undefined,

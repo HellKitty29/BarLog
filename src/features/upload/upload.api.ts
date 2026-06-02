@@ -5,7 +5,8 @@ import type { UploadImageResponse } from "./upload.types";
 const multipartConfig = {
   headers: {
     "Content-Type": undefined as unknown as string
-  }
+  },
+  timeout: 90_000
 };
 
 export const uploadApi = {

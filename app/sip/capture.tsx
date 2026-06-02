@@ -57,15 +57,10 @@ export default function SipCaptureScreen() {
       if (!uploadedPhotoUrl && currentDraft.localPhotoUri) {
         const upload = await uploadApi.uploadImage(createImageFormData(currentDraft.localPhotoUri));
         uploadedPhotoUrl = upload.imageUrl;
-        updateDraft({ uploadedPhotoUrl });
+        updateDraft({ uploadedPhotoUrl, uploadedCardUrl: upload.imageUrl });
       }
 
-      let uploadedCardUrl = currentDraft.uploadedCardUrl;
-      if (!uploadedCardUrl && currentDraft.localPhotoUri) {
-        const cardUpload = await uploadApi.uploadCardImage(createImageFormData(currentDraft.localPhotoUri));
-        uploadedCardUrl = cardUpload.imageUrl;
-        updateDraft({ uploadedCardUrl });
-      }
+      const uploadedCardUrl = currentDraft.uploadedCardUrl ?? uploadedPhotoUrl;
 
       return sipApi.createCheckIn(
         draftToCreateCheckInPayload({
