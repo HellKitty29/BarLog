@@ -7,10 +7,12 @@ export type GalleryFeedParams = {
 
 export type CreateGalleryPostPayload = {
   imageUrl: string;
+  cardImageUrl?: string;
   caption?: string;
   city?: string;
   barId?: string;
   barName?: string;
+  rating?: number;
 };
 
 export type GalleryFeedResponse = {

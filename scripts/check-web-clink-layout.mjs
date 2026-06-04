@@ -9,13 +9,23 @@ const requiredAppMarkers = [
   "function ClinkIcon",
   "label=\"Clink\"",
   "Nearby Radar",
-  "Direct Chats",
+  "Clinks",
   "slice(0, 3)",
+  "visibleConversations",
+  "pendingConversationId",
+  "pendingConversation",
+  "initialConversationId",
+  "initialConversationFallback",
+  "onInitialConversationOpened",
+  "activeConversationFallback",
+  "onOpenClinks({",
   "function getCandidateProfile",
   "profile.drunkTi",
-  "STREAM SYNCHRONIZED",
   "className=\"clink-match-card",
-  "className=\"clink-chat-shell"
+  "className=\"clink-chat-shell",
+  "discover-header-action",
+  "DrunkTI",
+  "Say Hello"
 ];
 
 for (const marker of requiredAppMarkers) {
@@ -24,16 +34,30 @@ for (const marker of requiredAppMarkers) {
   }
 }
 
+const forbiddenAppMarkers = [
+  "RECENT CLINKS",
+  "match-saved-strip",
+  "Direct Chats"
+];
+
+for (const marker of forbiddenAppMarkers) {
+  if (appSource.includes(marker)) {
+    throw new Error(`Web Clink layout check failed: forbidden App marker ${marker}`);
+  }
+}
+
 const requiredStyleMarkers = [
   ".clink-panel",
   ".clink-tabs",
-  ".clink-radar-card",
   ".clink-match-card",
   ".clink-drunkti-badge",
   ".clink-score",
   ".clink-chat-shell",
   ".clink-message-bubble",
-  ".clink-compose"
+  ".clink-compose",
+  ".discover-header-row",
+  ".discover-header-action",
+  "height: clamp(300px, calc(100dvh - 360px), 500px)"
 ];
 
 for (const marker of requiredStyleMarkers) {

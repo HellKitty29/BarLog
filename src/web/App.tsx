@@ -23,15 +23,17 @@
   Wine,
   X
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { authApi } from "@/features/auth/auth.api";
 import { useAuthStore } from "@/features/auth/auth.store";
 import { getLocalSessionUser, saveLocalSessionUser, clearLocalSessionUser } from "@/features/auth/local-session";
+import { barsApi } from "@/features/bars/bars.api";
 import { useNearbyBarsQuery } from "@/features/bars/bars.queries";
 import { chatApi } from "@/features/chat/chat.api";
 import { useConversationMessagesQuery, useConversationsQuery } from "@/features/chat/chat.queries";
 import { useDiaryCalendarQuery, useDiarySummaryQuery, useRecentSipsQuery } from "@/features/diary/diary.queries";
+import { getDrinkIconVariant, type DrinkIconVariant } from "@/features/drinks/drink-icon-variant";
 import { useGalleryFeedQuery } from "@/features/gallery/gallery.queries";
 import { galleryApi } from "@/features/gallery/gallery.api";
 import { useMatchCandidatesQuery } from "@/features/match/match.queries";
@@ -39,6 +41,8 @@ import { matchApi } from "@/features/match/match.api";
 import type { MatchCandidate } from "@/features/match/match.types";
 import { createDrunkTiResult, drunkTiQuestions, type DrunkTiResult } from "@/features/persona/drunkti";
 import { useDrunkTiStore } from "@/features/persona/drunkti.store";
+import { alternateDrinkCategoryOptions, clampCheckInRating, getRandomClassicCocktailName, weatherMoodOptions } from "@/features/sip/checkin-options";
+import { getNearestBarAutofill } from "@/features/sip/nearest-bar";
 import { sipApi } from "@/features/sip/sip.api";
 import { uploadApi } from "@/features/upload/upload.api";
 import { createImageFormData, compressImageForUpload } from "@/features/upload/upload.helpers";
@@ -48,7 +52,7 @@ import { diaryFilterOptions, filterDiaryLogs, getDiaryAnchorDate, getSelectedDia
 import { clearTokens, setAccessToken, setRefreshToken } from "@/services/storage/token-storage";
 import { createMapRegionForCoordinates, createNearbyBarsParams, defaultDiscoveryCoordinates } from "@/services/location/map-region";
 import { calculateDistanceMeters } from "@/services/location/geo-utils";
-import type { Bar, CheckIn, DrinkCategory, SipDraft, User as UserType } from "@/types/domain";
+import type { Bar, CheckIn, Conversation, DrinkCategory, SipDraft, User as UserType } from "@/types/domain";
 import { formatDistance, formatRating } from "@/utils/format";
 
 type MainTabKey = "discover" | "check-in" | "clink" | "me";
@@ -58,8 +62,8 @@ type DiaryStatFilter = "all" | "bar" | "rating" | null;
 type Coordinates = { lat: number; lng: number };
 type GenderPreference = "female" | "male" | "secret";
 type MbtiAxis = "energy" | "mind" | "nature" | "tactics";
+type PendingClinkConversation = Pick<Conversation, "id" | "peerAvatarUrl" | "peerDisplayName" | "peerUserId" | "title">;
 
-const drinkCategories: DrinkCategory[] = ["cocktail", "whisky", "wine", "beer", "other"];
 const googleAuthModeKey = "barlog.auth.googleMode";
 
 const spiritPreferenceOptions = [
@@ -569,6 +573,7 @@ async function persistAuthResponse(response: Awaited<ReturnType<typeof authApi.l
 function DiaryScreen({ beforeContent }: { beforeContent?: ReactNode } = {}) {
   const month = useCurrentMonth();
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [selectedSipCard, setSelectedSipCard] = useState<CheckIn | null>(null);
   const [search, setSearch] = useState("");
   const [activeFilter, setActiveFilter] = useState<DiaryFilterKey>("all");
   const [activeStatFilter, setActiveStatFilter] = useState<DiaryStatFilter>("all");
@@ -660,9 +665,10 @@ function DiaryScreen({ beforeContent }: { beforeContent?: ReactNode } = {}) {
       {recent.isLoading ? <StatusCard label="Loading recent sips" /> : null}
       {recent.isError ? <StatusCard tone="error" label={recent.error.message} /> : null}
       <div className="stack">
-        {visibleLogs.map((sip) => <LogCard key={sip.id} sip={sip} />)}
+        {visibleLogs.map((sip) => <LogCard key={sip.id} sip={sip} onOpenCard={setSelectedSipCard} />)}
         {!recent.isLoading && !visibleLogs.length ? <StatusCard label="No matching logs returned." /> : null}
       </div>
+      {selectedSipCard ? <CheckInCardModal sip={selectedSipCard} onClose={() => setSelectedSipCard(null)} /> : null}
       <DrunkTiModal
         onClose={() => setIsDrunkTiOpen(false)}
         onSave={(result) => {
@@ -685,13 +691,16 @@ function DiscoverScreen() {
   const [boozerMapOpen, setBoozerMapOpen] = useState(false);
   const [barQuestionDraft, setBarQuestionDraft] = useState("");
   const [barQuestion, setBarQuestion] = useState("");
+  const [isDrunkTiOpen, setIsDrunkTiOpen] = useState(false);
+  const drunkTiResult = useDrunkTiStore((state) => state.result);
+  const setDrunkTiResult = useDrunkTiStore((state) => state.setResult);
   const referenceCoords = coords ?? defaultDiscoveryCoordinates;
   const params = useMemo(() => {
-    const baseParams = createNearbyBarsParams(referenceCoords);
+    const baseParams = createNearbyBarsParams(coords);
     const query = barQuestion.trim();
-    return query ? { ...baseParams, query } : baseParams;
-  }, [barQuestion, referenceCoords]);
-  const nearby = useNearbyBarsQuery(params, { enabled: mode === "bars" });
+    return baseParams && query ? { ...baseParams, query } : baseParams;
+  }, [barQuestion, coords]);
+  const nearby = useNearbyBarsQuery(params, { enabled: mode === "bars" && Boolean(params) });
   const bars = (nearby.data?.items ?? []).map((bar) => ({
     ...bar,
     displayDistanceMeters: typeof bar.lat === "number" && typeof bar.lng === "number"
@@ -707,7 +716,15 @@ function DiscoverScreen() {
   }, [mode]);
 
   return (
-    <Screen title="Discover" subtitle="Gallery check-ins and nearby bars powered by backend data.">
+    <section className="screen">
+      <div className="discover-header-row">
+        <PageHeader title="Discover" subtitle="Gallery check-ins and nearby bars powered by backend data." />
+        <button className="drunkti-button discover-header-action" type="button" onClick={() => setIsDrunkTiOpen(true)}>
+          <TestTube2 size={14} />
+          DrunkTI
+          {drunkTiResult ? <span>{drunkTiResult.code}</span> : null}
+        </button>
+      </div>
       <div className="segmented">
         <button className={mode === "gallery" ? "active" : ""} onClick={() => setMode("gallery")} type="button">Gallery</button>
         <button className={mode === "bars" ? "active" : ""} onClick={() => setMode("bars")} type="button">Bars</button>
@@ -755,7 +772,7 @@ function DiscoverScreen() {
             <button type="submit">Search</button>
           </form>
           {barQuestion ? <StatusCard label={`Searching bars for: ${barQuestion}`} /> : null}
-          {!coords ? <StatusCard label="Showing the default Shanghai map until browser location permission is available." /> : null}
+          {!coords ? <StatusCard label="Waiting for browser location permission before loading nearby bars." /> : null}
           <button className="permission-button" type="button" onClick={() => requestLocation(setCoords, setLocating, setLocationError)}>
             <LocateFixed size={16} />
             {locating ? "Finding your location..." : coords ? "Refresh current location" : "Allow location for nearby bars"}
@@ -772,14 +789,24 @@ function DiscoverScreen() {
           <BoozerMapModal visible={boozerMapOpen} onClose={() => setBoozerMapOpen(false)} />
         </>
       )}
-    </Screen>
+      <DrunkTiModal
+        onClose={() => setIsDrunkTiOpen(false)}
+        onSave={(result) => {
+          setDrunkTiResult(result);
+          setIsDrunkTiOpen(false);
+        }}
+        visible={isDrunkTiOpen}
+      />
+    </section>
   );
 }
 
 function ClinkScreen() {
   const [mode, setMode] = useState<"match" | "chats">("match");
+  const [pendingConversation, setPendingConversation] = useState<PendingClinkConversation | null>(null);
+  const pendingConversationId = pendingConversation?.id ?? null;
   const conversations = useConversationsQuery();
-  const chatCount = conversations.data?.items.length ?? 0;
+  const chatCount = Math.min(conversations.data?.items.length ?? 0, 3);
   const beforeContent = (
     <div className="clink-tabs">
       <button className={mode === "match" ? "active" : ""} onClick={() => setMode("match")} type="button">
@@ -787,7 +814,7 @@ function ClinkScreen() {
         Nearby Radar
       </button>
       <button className={mode === "chats" ? "active" : ""} onClick={() => setMode("chats")} type="button">
-        Direct Chats ({chatCount})
+        Clinks ({chatCount})
       </button>
     </div>
   );
@@ -796,7 +823,22 @@ function ClinkScreen() {
     <section className="screen clink-screen">
       <PageHeader title="Clink" subtitle="Match and chat with tonight's drinking buddies." />
       {beforeContent}
-      {mode === "match" ? <MatchPanel conversations={conversations} /> : <ChatPanel conversations={conversations} />}
+      {mode === "match" ? (
+        <MatchPanel
+          conversations={conversations}
+          onOpenClinks={(conversation) => {
+            setPendingConversation(conversation);
+            setMode("chats");
+          }}
+        />
+      ) : (
+        <ChatPanel
+          conversations={conversations}
+          initialConversationFallback={pendingConversation}
+          initialConversationId={pendingConversationId}
+          onInitialConversationOpened={() => setPendingConversation(null)}
+        />
+      )}
     </section>
   );
 }
@@ -810,10 +852,11 @@ function SipScreen({ onPublished }: { onPublished: () => void }) {
   const [photo, setPhoto] = useState<{ url: string; blob: Blob } | null>(null);
   const [flipped, setFlipped] = useState(false);
   const [drinkName, setDrinkName] = useState("Negroni");
-  const [barName, setBarName] = useState("The Botanist");
-  const [category, setCategory] = useState<DrinkCategory>("cocktail");
-  const [rating, setRating] = useState("4.5");
-  const [mood, setMood] = useState("citrus");
+  const [barName, setBarName] = useState("");
+  const [city, setCity] = useState<string | undefined>();
+  const [category, setCategory] = useState<DrinkCategory | null>("cocktail");
+  const [rating, setRating] = useState(4.5);
+  const [mood, setMood] = useState("sunny");
   const [note, setNote] = useState("Bittersweet, citrus-lit, and ready for a slow second sip.");
   const publish = useMutation({
     mutationFn: async () => {
@@ -823,16 +866,26 @@ function SipScreen({ onPublished }: { onPublished: () => void }) {
       const compressed = await compressImageForUpload(photo.blob);
       const formData = createImageFormData(compressed, "sip.jpg", "image/jpeg");
       const photoUpload = await uploadApi.uploadImage(formData);
+      const selectedCategory = category ?? "cocktail";
+      const cardBlob = await createGeneratedCardBlob({
+        barName: barName.trim() || "Tonight",
+        drinkName: drinkName.trim() || "Tonight's Sip",
+        note: note.trim() || "Bittersweet, citrus-lit, and ready for a slow second sip.",
+        photoUrl: photo.url
+      });
+      const cardFormData = createImageFormData(cardBlob, "sip-card.jpg", "image/jpeg");
+      const cardUpload = await uploadApi.uploadCardImage(cardFormData);
       const draft: SipDraft = {
         localPhotoUri: photo.url,
         uploadedPhotoUrl: photoUpload.imageUrl,
-        uploadedCardUrl: photoUpload.imageUrl,
+        generatedCardUri: photo.url,
+        uploadedCardUrl: cardUpload.imageUrl,
         drinkName: drinkName.trim() || "Tonight's Sip",
-        drinkCategory: category,
+        drinkCategory: selectedCategory,
         barName: barName.trim() || undefined,
-        city: "Shanghai",
-        moodTags: mood.trim() ? [mood.trim()] : [],
-        rating: clampRating(rating),
+        city,
+        moodTags: mood ? [mood] : [],
+        rating,
         vibeMumbling: note.trim() || undefined,
         cardStyle: "receipt",
         visibility: "tonight_only",
@@ -903,10 +956,13 @@ function SipScreen({ onPublished }: { onPublished: () => void }) {
       if (!blob) {
         return;
       }
+      setDrinkName(getRandomClassicCocktailName());
+      setCategory("cocktail");
       setPhoto({ blob, url: URL.createObjectURL(blob) });
       setFlipped(false);
       stopCamera(streamRef.current);
       setCameraReady(false);
+      void fillNearestBarForWebCheckIn(setBarName, setCity);
     }, "image/jpeg", 0.92);
   }
 
@@ -914,8 +970,11 @@ function SipScreen({ onPublished }: { onPublished: () => void }) {
     if (!file) {
       return;
     }
+    setDrinkName(getRandomClassicCocktailName());
+    setCategory("cocktail");
     setPhoto({ blob: file, url: URL.createObjectURL(file) });
     setFlipped(false);
+    void fillNearestBarForWebCheckIn(setBarName, setCity);
   }
 
   return (
@@ -953,26 +1012,32 @@ function SipScreen({ onPublished }: { onPublished: () => void }) {
                 <div className="card-copy">
                   <p>MOCK GENERATED CARD</p>
                   <h2>{drinkName}</h2>
-                  <span>{barName}</span>
+                  <span>{barName || "Finding nearest bar..."}</span>
                   <small>{note}</small>
                 </div>
                 <div className="flip-hint"><RefreshCw size={13} /> TAP TO FLIP</div>
               </>
             ) : (
               <div className="card-form" onClick={(event) => event.stopPropagation()}>
-                <h2>Complete the check-in</h2>
                 <Field label="Drink"><input value={drinkName} onChange={(event) => setDrinkName(event.target.value)} /></Field>
-                <Field label="Bar"><input value={barName} onChange={(event) => setBarName(event.target.value)} /></Field>
-                <div className="chip-row">
-                  {drinkCategories.map((item) => (
-                    <button key={item} className={category === item ? "active" : ""} type="button" onClick={() => setCategory(item)}>{item}</button>
+                <div className="drink-or-row">
+                  {alternateDrinkCategoryOptions.map((item) => (
+                    <button
+                      key={item.value}
+                      className={category === item.value ? "active" : ""}
+                      type="button"
+                      onClick={() => setCategory((current) => current === item.value ? null : item.value as DrinkCategory)}
+                    >
+                      {item.label}
+                    </button>
                   ))}
                 </div>
+                <Field label="Bar"><input value={barName} onChange={(event) => setBarName(event.target.value)} /></Field>
                 <div className="two-fields">
-                  <Field label="Rating"><input inputMode="decimal" value={rating} onChange={(event) => setRating(event.target.value)} /></Field>
-                  <Field label="Mood"><input value={mood} onChange={(event) => setMood(event.target.value)} /></Field>
+                  <Field label="Rating"><HeartRating value={rating} onChange={setRating} /></Field>
+                  <Field label="Mood"><WeatherMoodPicker value={mood} onChange={setMood} /></Field>
                 </div>
-                <Field label="Note"><textarea value={note} onChange={(event) => setNote(event.target.value)} /></Field>
+                <Field label="Saying something..."><textarea value={note} onChange={(event) => setNote(event.target.value)} /></Field>
               </div>
             )}
           </button>
@@ -988,6 +1053,210 @@ function SipScreen({ onPublished }: { onPublished: () => void }) {
       )}
     </Screen>
   );
+}
+
+function HeartRating({ onChange, value }: { onChange: (value: number) => void; value: number }) {
+  const clipId = useId();
+  const updateFromPointer = (event: PointerEvent<HTMLButtonElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const ratio = (event.clientX - rect.left) / rect.width;
+    onChange(clampCheckInRating(ratio * 5));
+  };
+
+  return (
+    <button
+      className="heart-rating"
+      type="button"
+      onClick={updateFromPointer}
+      onPointerMove={(event) => {
+        if (event.buttons === 1) {
+          updateFromPointer(event);
+        }
+      }}
+      aria-label={`Rating ${value.toFixed(1)} out of 5`}
+    >
+      <span className="heart-rating-heart" aria-hidden="true">
+        <svg viewBox="0 0 100 92">
+          <defs>
+            <clipPath id={clipId}>
+              <path d="M50 84S8 59 8 30C8 14 19 6 31 6c8 0 15 4 19 11C54 10 61 6 69 6c12 0 23 8 23 24 0 29-42 54-42 54Z" />
+            </clipPath>
+          </defs>
+          <path
+            d="M50 84S8 59 8 30C8 14 19 6 31 6c8 0 15 4 19 11C54 10 61 6 69 6c12 0 23 8 23 24 0 29-42 54-42 54Z"
+            fill="rgba(255,255,255,0.12)"
+            stroke="#ffffff"
+            strokeWidth="4"
+          />
+          <rect x="0" y="0" width={(value / 5) * 100} height="92" fill="#964b67" clipPath={`url(#${clipId})`} />
+          <path
+            d="M50 84S8 59 8 30C8 14 19 6 31 6c8 0 15 4 19 11C54 10 61 6 69 6c12 0 23 8 23 24 0 29-42 54-42 54Z"
+            fill="none"
+            stroke="#ffffff"
+            strokeWidth="4"
+          />
+        </svg>
+      </span>
+      <strong>{value.toFixed(1)}/5</strong>
+    </button>
+  );
+}
+
+async function createGeneratedCardBlob({
+  barName,
+  drinkName,
+  note,
+  photoUrl
+}: {
+  barName: string;
+  drinkName: string;
+  note: string;
+  photoUrl: string;
+}) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 1080;
+  canvas.height = 1500;
+  const context = canvas.getContext("2d");
+  if (!context) {
+    throw new Error("Unable to create check-in card.");
+  }
+
+  const image = await loadImage(photoUrl);
+  const scale = Math.max(canvas.width / image.width, canvas.height / image.height);
+  const width = image.width * scale;
+  const height = image.height * scale;
+  context.drawImage(image, (canvas.width - width) / 2, (canvas.height - height) / 2, width, height);
+
+  const gradient = context.createLinearGradient(0, 0, 0, canvas.height);
+  gradient.addColorStop(0, "rgba(18, 6, 5, 0.12)");
+  gradient.addColorStop(0.45, "rgba(18, 6, 5, 0.25)");
+  gradient.addColorStop(1, "rgba(8, 1, 1, 0.9)");
+  context.fillStyle = gradient;
+  context.fillRect(0, 0, canvas.width, canvas.height);
+
+  context.fillStyle = "#c68334";
+  context.font = "900 34px Arial";
+  context.fillText("BARLOG CHECK-IN", 72, canvas.height - 330);
+
+  context.fillStyle = "#faf6ee";
+  context.font = "900 96px Arial";
+  wrapCanvasText(context, drinkName, 72, canvas.height - 230, canvas.width - 144, 104, 2);
+
+  context.font = "800 38px Arial";
+  context.fillText(barName, 72, canvas.height - 118);
+
+  context.fillStyle = "#d0c3b7";
+  context.font = "700 31px Arial";
+  wrapCanvasText(context, note, 72, canvas.height - 62, canvas.width - 144, 42, 2);
+
+  return new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) {
+        resolve(blob);
+        return;
+      }
+      reject(new Error("Unable to export check-in card."));
+    }, "image/jpeg", 0.9);
+  });
+}
+
+function loadImage(src: string) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new window.Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("Unable to load card photo."));
+    image.src = src;
+  });
+}
+
+function wrapCanvasText(
+  context: CanvasRenderingContext2D,
+  text: string,
+  x: number,
+  y: number,
+  maxWidth: number,
+  lineHeight: number,
+  maxLines: number
+) {
+  const words = text.split(/\s+/).filter(Boolean);
+  let line = "";
+  let lineCount = 0;
+
+  for (const word of words) {
+    const nextLine = line ? `${line} ${word}` : word;
+    if (context.measureText(nextLine).width > maxWidth && line) {
+      context.fillText(line, x, y + lineCount * lineHeight);
+      line = word;
+      lineCount += 1;
+      if (lineCount >= maxLines) {
+        return;
+      }
+    } else {
+      line = nextLine;
+    }
+  }
+
+  if (line && lineCount < maxLines) {
+    context.fillText(line, x, y + lineCount * lineHeight);
+  }
+}
+
+function WeatherMoodPicker({ onChange, value }: { onChange: (value: string) => void; value: string }) {
+  return (
+    <div className="weather-mood-grid">
+      {weatherMoodOptions.map((option) => (
+        <button
+          key={option.value}
+          className={value === option.value ? "active" : ""}
+          type="button"
+          onClick={() => onChange(option.value)}
+          aria-label={option.label}
+        >
+          <span>{option.icon}</span>
+          <small>{option.label}</small>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+async function fillNearestBarForWebCheckIn(
+  setBarName: (value: string) => void,
+  setCity: (value: string | undefined) => void
+) {
+  try {
+    const coords = await getBrowserCoordinates();
+    const params = createNearbyBarsParams(coords);
+
+    if (!params) {
+      return;
+    }
+
+    const nearby = await barsApi.getNearby(params);
+    const autofill = getNearestBarAutofill(nearby.items, coords);
+
+    if (autofill) {
+      setBarName(autofill.barName);
+      setCity(autofill.city);
+    }
+  } catch {
+    // Location autofill is opportunistic; manual Bar entry remains available.
+  }
+}
+
+function getBrowserCoordinates(): Promise<Coordinates> {
+  return new Promise((resolve, reject) => {
+    if (!window.isSecureContext || !navigator.geolocation) {
+      reject(new Error("Browser geolocation unavailable."));
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => resolve({ lat: position.coords.latitude, lng: position.coords.longitude }),
+      reject,
+      { enableHighAccuracy: false, maximumAge: 60_000, timeout: 10_000 }
+    );
+  });
 }
 
 function MeScreen({ user, onLogout }: { user: UserType; onLogout: () => void }) {
@@ -1031,6 +1300,7 @@ function MeScreen({ user, onLogout }: { user: UserType; onLogout: () => void }) 
         <button className="profile-logout-icon" type="button" onClick={onLogout} aria-label="Log out">
           <LogOut size={19} />
         </button>
+        {drunkTiResult ? <DrunkTiResultCard result={drunkTiResult} variant="profile" /> : null}
       </section>
     </Screen>
   );
@@ -1060,6 +1330,7 @@ function formatPreferenceLabel(value: string) {
 function CommunityFeed() {
   const feed = useGalleryFeedQuery({ city: "Shanghai", range: "24h" });
   const [selectedAuthor, setSelectedAuthor] = useState<GalleryAuthorPost | null>(null);
+  const [expandedGalleryCards, setExpandedGalleryCards] = useState<Set<string>>(() => new Set());
   const [likedPosts, setLikedPosts] = useState<Set<string>>(() => {
     try {
       return new Set(JSON.parse(window.localStorage.getItem("barlog.community.likedPosts") ?? "[]"));
@@ -1095,6 +1366,17 @@ function CommunityFeed() {
     });
     like.mutate(postId);
   };
+  const toggleExpandedGalleryCard = (postId: string) => {
+    setExpandedGalleryCards((current) => {
+      const next = new Set(current);
+      if (next.has(postId)) {
+        next.delete(postId);
+      } else {
+        next.add(postId);
+      }
+      return next;
+    });
+  };
 
   useEffect(() => {
     window.localStorage.setItem("barlog.community.likedPosts", JSON.stringify([...likedPosts]));
@@ -1109,20 +1391,30 @@ function CommunityFeed() {
         {(feed.data?.items ?? []).map((post) => {
           const liked = likedPosts.has(post.id) || Boolean(("likedByMe" in post && post.likedByMe) || ("likedByCurrentUser" in post && post.likedByCurrentUser));
           const likeCount = post.likedCount + (liked ? 1 : 0);
+          const hasCardImage = hasCommunityPostCardImage(post);
           const imageSrc = getCommunityPostImage(post);
           const imageFailed = failedImages.has(post.id);
+          const isExpanded = expandedGalleryCards.has(post.id);
+          const rating = getCommunityPostRating(post);
 
           return (
             <article className="feed-card" key={post.id}>
               {imageSrc && !imageFailed ? (
-                <img
-                  className="feed-card-photo"
-                  src={imageSrc}
-                  alt={post.caption ?? post.barName ?? "Check-in photo"}
-                  onError={() => {
-                    setFailedImages((current) => new Set(current).add(post.id));
-                  }}
-                />
+                <button
+                  className={`feed-card-media ${isExpanded ? "is-expanded" : ""}`}
+                  type="button"
+                  onClick={() => toggleExpandedGalleryCard(post.id)}
+                  aria-label={isExpanded ? "Collapse check-in card" : "Show full check-in card"}
+                >
+                  <img
+                    className={`feed-card-photo ${hasCardImage ? "is-card" : ""}`}
+                    src={imageSrc}
+                    alt={post.caption ?? post.barName ?? "Check-in photo"}
+                    onError={() => {
+                      setFailedImages((current) => new Set(current).add(post.id));
+                    }}
+                  />
+                </button>
               ) : (
                 <div className="feed-card-photo feed-card-photo-fallback">
                   <Image size={22} />
@@ -1148,6 +1440,7 @@ function CommunityFeed() {
                     {likeCount}
                   </button>
                 </div>
+                <span className="feed-card-rating"><Star size={13} /> {rating}</span>
                 {post.caption ? <p>{post.caption}</p> : null}
               </div>
             </article>
@@ -1194,23 +1487,30 @@ type CommunityImagePost = {
   likedByMe?: boolean;
   likedByCurrentUser?: boolean;
   mediaUrl?: string;
+  metadata?: CommunityImagePost;
   photo?: string;
   photoUrl?: string;
   photos?: string[];
+  score?: number;
+  checkInRating?: number;
+  checkinRating?: number;
+  drinkRating?: number;
+  rating?: number;
+  sip?: CommunityImagePost;
   thumbnailUrl?: string;
   uploadedPhotoUrl?: string;
 };
 
 function getCommunityPostImage(post: CommunityImagePost): string {
-  const raw = post.imageUrl ||
+  const raw = post.cardImageUrl ||
+    post.generatedCardUri ||
+    post.imageUrl ||
     post.photoUrl ||
     post.checkInPhotoUrl ||
     post.mediaUrl ||
     post.thumbnailUrl ||
     post.photo ||
-    post.cardImageUrl ||
     post.uploadedPhotoUrl ||
-    post.generatedCardUri ||
     post.images?.[0] ||
     post.photos?.[0] ||
     (post.checkIn ? getCommunityPostImage(post.checkIn) : "");
@@ -1218,12 +1518,37 @@ function getCommunityPostImage(post: CommunityImagePost): string {
   return resolveMediaUrl(raw);
 }
 
-function MatchPanel({ conversations }: { conversations: ReturnType<typeof useConversationsQuery> }) {
-  const user = useAuthStore((state) => state.user);
+function hasCommunityPostCardImage(post: CommunityImagePost): boolean {
+  return Boolean(post.cardImageUrl || post.generatedCardUri || (post.checkIn ? hasCommunityPostCardImage(post.checkIn) : false));
+}
+
+function getCommunityPostRating(post: CommunityImagePost): string {
+  const rating = readCommunityPostRating(post);
+  return typeof rating === "number" ? `${rating.toFixed(1)}/5` : "-/5";
+}
+
+function readCommunityPostRating(post: CommunityImagePost): number | undefined {
+  const direct = [post.rating, post.checkInRating, post.checkinRating, post.drinkRating, post.score]
+    .find((value) => typeof value === "number");
+
+  if (typeof direct === "number") {
+    return direct;
+  }
+
+  return post.checkIn ? readCommunityPostRating(post.checkIn)
+    : post.sip ? readCommunityPostRating(post.sip)
+    : post.metadata ? readCommunityPostRating(post.metadata)
+    : undefined;
+}
+
+function MatchPanel({
+  conversations,
+  onOpenClinks
+}: {
+  conversations: ReturnType<typeof useConversationsQuery>;
+  onOpenClinks: (conversation: PendingClinkConversation) => void;
+}) {
   const candidates = useMatchCandidatesQuery();
-  const [activeCandidate, setActiveCandidate] = useState<MatchCandidate | null>(null);
-  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
-  const [messageDraft, setMessageDraft] = useState("");
   const [helloCard, setHelloCard] = useState<{ candidate: MatchCandidate; conversationId: string } | null>(null);
   const [savedChatIds, setSavedChatIds] = useState<string[]>(() => {
     try {
@@ -1232,19 +1557,9 @@ function MatchPanel({ conversations }: { conversations: ReturnType<typeof useCon
       return [];
     }
   });
-  const messages = useConversationMessagesQuery(activeConversationId ?? "");
   const connect = useMutation({
     mutationFn: (userId: string) => matchApi.connect(userId),
     onSuccess: () => {
-      void conversations.refetch();
-    }
-  });
-  const sendMessage = useMutation({
-    mutationFn: ({ body, conversationId }: { body: string; conversationId: string }) =>
-      chatApi.sendMessage(conversationId, body),
-    onSuccess: () => {
-      setMessageDraft("");
-      void messages.refetch();
       void conversations.refetch();
     }
   });
@@ -1268,10 +1583,6 @@ function MatchPanel({ conversations }: { conversations: ReturnType<typeof useCon
       return 0;
     });
   }, [candidates.data, savedChatIds]);
-  const savedCandidates = savedChatIds
-    .map((id) => (candidates.data ?? []).find((candidate) => candidate.id === id))
-    .filter((candidate): candidate is MatchCandidate => Boolean(candidate));
-
   useEffect(() => {
     window.localStorage.setItem("barlog.match.savedChats", JSON.stringify(savedChatIds));
   }, [savedChatIds]);
@@ -1283,131 +1594,15 @@ function MatchPanel({ conversations }: { conversations: ReturnType<typeof useCon
       setHelloCard({ candidate, conversationId: result.conversationId });
       void conversations.refetch();
     } catch {
-      setActiveCandidate(candidate);
-      setActiveConversationId(null);
-      setMessageDraft("");
+      setHelloCard(null);
     }
   };
-
-  const sayHello = () => {
-    if (!helloCard) {
-      return;
-    }
-
-    setActiveCandidate(helloCard.candidate);
-    setActiveConversationId(helloCard.conversationId);
-    setMessageDraft("");
-    setHelloCard(null);
-  };
-
-  const submitMessage = () => {
-    const body = messageDraft.trim();
-    if (!body || !activeConversationId) {
-      return;
-    }
-
-    sendMessage.mutate({ body, conversationId: activeConversationId });
-  };
-
-  if (activeCandidate) {
-    const profile = getCandidateProfile(activeCandidate);
-    return (
-      <section className="clink-chat-shell" aria-label={`Chat with ${activeCandidate.displayName}`}>
-        <div className="clink-stream-pill">STREAM SYNCHRONIZED</div>
-        <div className="clink-chat-backline">
-          <button
-            className="match-chat-back"
-            type="button"
-            onClick={() => {
-              setActiveCandidate(null);
-              setActiveConversationId(null);
-              setMessageDraft("");
-            }}
-            aria-label="Back to matches"
-          >
-            <ArrowLeft size={16} />
-          </button>
-          <div className="match-chat-person">
-            <div className="match-chat-avatar" style={{ "--avatar-color": profile.avatarColor } as CSSProperties}>
-              <img src={activeCandidate.avatarUrl ? resolveMediaUrl(activeCandidate.avatarUrl) : getDefaultAvatarDataUri(activeCandidate.id || activeCandidate.displayName)} alt="" />
-            </div>
-            <span>
-              <strong>{activeCandidate.displayName}</strong>
-              <small>
-                {activeConversationId
-                  ? "Conversation open"
-                  : connect.isPending
-                    ? "Opening chat..."
-                    : connect.isError
-                      ? "Unable to start chat"
-                      : "Clink room"}
-              </small>
-            </span>
-          </div>
-        </div>
-        <div className="clink-message-list">
-          {messages.isLoading ? <StatusCard label="Loading messages" /> : null}
-          {messages.isError ? <StatusCard tone="error" label={messages.error.message} /> : null}
-          {activeConversationId
-            ? (messages.data?.items ?? []).map((message) => (
-              <p key={message.id} className={`clink-message-bubble ${message.senderId === user?.id ? "mine" : "theirs"}`}>
-                {message.body}
-              </p>
-            ))
-            : null}
-          {!activeConversationId ? (
-            <small>
-              {connect.isError
-                ? connect.error instanceof Error
-                  ? connect.error.message
-                  : "Unable to start chat."
-                : "Opening a direct chat with this match..."}
-            </small>
-          ) : null}
-          {activeConversationId && !messages.isLoading && !(messages.data?.items ?? []).length ? (
-            <small>No messages yet. Start with a tiny pour.</small>
-          ) : null}
-        </div>
-        <div className="clink-compose">
-          <input
-            autoFocus
-            value={messageDraft}
-            onChange={(event) => setMessageDraft(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                submitMessage();
-              }
-            }}
-            placeholder="Send a low-pressure opener..."
-          />
-          <button type="button" disabled={!messageDraft.trim() || !activeConversationId || sendMessage.isPending} onClick={submitMessage}>
-            <Send size={15} />
-          </button>
-        </div>
-      </section>
-    );
-  }
 
   return (
     <section className="clink-panel">
       <SectionLabel icon={<ClinkIcon />} label="HIGHEST CHEMISTRY MATCHES TONIGHT" />
       {candidates.isLoading ? <StatusCard label="Loading nearby drinking buddies" /> : null}
       {candidates.isError ? <StatusCard tone="error" label={candidates.error.message} /> : null}
-      {savedCandidates.length ? (
-        <section className="match-saved-strip" aria-label="Recent clinks">
-          <strong>RECENT CLINKS</strong>
-          <div>
-            {savedCandidates.map((candidate) => (
-              <button key={candidate.id} type="button" onClick={() => openChat(candidate)}>
-                <span className="match-saved-avatar">
-                  <img src={candidate.avatarUrl ? resolveMediaUrl(candidate.avatarUrl) : getDefaultAvatarDataUri(candidate.id || candidate.displayName)} alt="" />
-                </span>
-                {candidate.displayName}
-              </button>
-            ))}
-          </div>
-        </section>
-      ) : null}
       <div className="stack">
         {orderedCandidates.map((candidate) => {
           const profile = getCandidateProfile(candidate);
@@ -1458,7 +1653,22 @@ function MatchPanel({ conversations }: { conversations: ReturnType<typeof useCon
             <p>
               You matched with <strong>{helloCard.candidate.displayName}</strong>. Her taste profile aligned perfectly with yours!
             </p>
-            <button className="clink-hello-primary" type="button" onClick={sayHello}>Say Hello</button>
+            <button
+              className="clink-hello-primary"
+              type="button"
+              onClick={() => {
+                setHelloCard(null);
+                onOpenClinks({
+                  id: helloCard.conversationId,
+                  peerAvatarUrl: helloCard.candidate.avatarUrl,
+                  peerDisplayName: helloCard.candidate.displayName,
+                  peerUserId: helloCard.candidate.id,
+                  title: helloCard.candidate.displayName
+                });
+              }}
+            >
+              Say Hello
+            </button>
             <button className="clink-hello-dismiss" type="button" onClick={() => setHelloCard(null)}>Dismiss Radar</button>
           </section>
         </div>
@@ -1521,20 +1731,137 @@ function ClinkIcon({ size = 16 }: { size?: number }) {
   );
 }
 
-function ChatPanel({ conversations }: { conversations: ReturnType<typeof useConversationsQuery> }) {
+function ChatPanel({
+  conversations,
+  initialConversationFallback,
+  initialConversationId,
+  onInitialConversationOpened
+}: {
+  conversations: ReturnType<typeof useConversationsQuery>;
+  initialConversationFallback: PendingClinkConversation | null;
+  initialConversationId: string | null;
+  onInitialConversationOpened: () => void;
+}) {
+  const user = useAuthStore((state) => state.user);
+  const allConversations = conversations.data?.items ?? [];
+  const visibleConversations = (conversations.data?.items ?? []).slice(0, 3);
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+  const [activeConversationFallback, setActiveConversationFallback] = useState<PendingClinkConversation | null>(null);
+  const [messageDraft, setMessageDraft] = useState("");
+  const activeConversation =
+    allConversations.find((conversation) => conversation.id === activeConversationId) ??
+    (activeConversationFallback?.id === activeConversationId ? activeConversationFallback : null);
+  const messages = useConversationMessagesQuery(activeConversationId ?? "");
+  const sendMessage = useMutation({
+    mutationFn: ({ body, conversationId }: { body: string; conversationId: string }) =>
+      chatApi.sendMessage(conversationId, body),
+    onSuccess: () => {
+      setMessageDraft("");
+      void messages.refetch();
+      void conversations.refetch();
+    }
+  });
+
+  useEffect(() => {
+    if (!initialConversationId) {
+      return;
+    }
+
+    setActiveConversationId(initialConversationId);
+    setActiveConversationFallback(initialConversationFallback);
+    onInitialConversationOpened();
+  }, [initialConversationFallback, initialConversationId, onInitialConversationOpened]);
+
+  const submitMessage = () => {
+    const body = messageDraft.trim();
+    if (!body || !activeConversationId) {
+      return;
+    }
+
+    sendMessage.mutate({ body, conversationId: activeConversationId });
+  };
+
+  if (activeConversation) {
+    const name = activeConversation.peerDisplayName ?? activeConversation.title;
+    const fallback = getConversationFallbackProfile(Math.max(0, visibleConversations.findIndex((conversation) => conversation.id === activeConversation.id)));
+
+    return (
+      <section className="clink-chat-shell" aria-label={`Chat with ${name}`}>
+        <div className="clink-chat-backline">
+          <button
+            className="match-chat-back"
+            type="button"
+            onClick={() => {
+              setActiveConversationId(null);
+              setActiveConversationFallback(null);
+              setMessageDraft("");
+            }}
+            aria-label="Back to clinks"
+          >
+            <ArrowLeft size={16} />
+          </button>
+          <div className="match-chat-person">
+            <div className="match-chat-avatar" style={{ "--avatar-color": fallback.avatarColor } as CSSProperties}>
+              <img src={activeConversation.peerAvatarUrl ? resolveMediaUrl(activeConversation.peerAvatarUrl) : getDefaultAvatarDataUri(activeConversation.peerUserId || name)} alt="" />
+            </div>
+            <span>
+              <strong>{name}</strong>
+              <small>Clink conversation</small>
+            </span>
+          </div>
+        </div>
+        <div className="clink-message-list">
+          {messages.isLoading ? <StatusCard label="Loading messages" /> : null}
+          {messages.isError ? <StatusCard tone="error" label={messages.error.message} /> : null}
+          {(messages.data?.items ?? []).map((message) => (
+            <p key={message.id} className={`clink-message-bubble ${message.senderId === user?.id ? "mine" : "theirs"}`}>
+              {message.body}
+            </p>
+          ))}
+          {!messages.isLoading && !(messages.data?.items ?? []).length ? (
+            <small>No messages yet. Start with a tiny pour.</small>
+          ) : null}
+        </div>
+        <div className="clink-compose">
+          <input
+            autoFocus
+            value={messageDraft}
+            onChange={(event) => setMessageDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                submitMessage();
+              }
+            }}
+            placeholder="Send a low-pressure opener..."
+          />
+          <button type="button" disabled={!messageDraft.trim() || sendMessage.isPending} onClick={submitMessage}>
+            <Send size={15} />
+          </button>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <>
-      <SectionLabel icon={<MessageCircle size={17} />} label="ACTIVE CONVERSATIONS" />
+      <SectionLabel icon={<MessageCircle size={17} />} label="CLINKS" />
       {conversations.isLoading ? <StatusCard label="Loading chats" /> : null}
       {conversations.isError ? <StatusCard tone="error" label={conversations.error.message} /> : null}
       <div className="clink-chat-list">
-        {(conversations.data?.items ?? []).map((conversation, index) => {
+        {visibleConversations.map((conversation, index) => {
           const fallback = getConversationFallbackProfile(index);
           const name = conversation.peerDisplayName ?? conversation.title;
 
           return (
-          <article className="match-card clink-conversation-card" key={conversation.id}>
+          <button
+            className="match-card clink-conversation-card"
+            key={conversation.id}
+            type="button"
+            onClick={() => {
+              setActiveConversationId(conversation.id);
+              setMessageDraft("");
+            }}
+          >
             <div className="match-avatar" style={{ "--avatar-color": fallback.avatarColor } as CSSProperties}>
               <img src={conversation.peerAvatarUrl ? resolveMediaUrl(conversation.peerAvatarUrl) : getDefaultAvatarDataUri(conversation.peerUserId || name)} alt="" />
             </div>
@@ -1544,10 +1871,10 @@ function ChatPanel({ conversations }: { conversations: ReturnType<typeof useConv
             </div>
             <time>{formatConversationTime(conversation.updatedAt)}</time>
             <ChevronRight size={17} />
-          </article>
+          </button>
         );
         })}
-        {!conversations.isLoading && !(conversations.data?.items ?? []).length ? <StatusCard label="No chats returned." /> : null}
+        {!conversations.isLoading && !visibleConversations.length ? <StatusCard label="No clinks returned." /> : null}
       </div>
     </>
   );
@@ -1782,10 +2109,11 @@ function PageHeader({ subtitle, title }: { subtitle: string; title: string }) {
 }
 
 function useHeaderCity() {
-  const [city, setCity] = useState("Shanghai");
+  const [city, setCity] = useState("Locating");
 
   useEffect(() => {
     if (!navigator.geolocation) {
+      setCity("Current City");
       return;
     }
 
@@ -1793,7 +2121,9 @@ function useHeaderCity() {
       (position) => {
         setCity(inferCityName(position.coords.latitude, position.coords.longitude));
       },
-      () => undefined,
+      () => {
+        setCity("Current City");
+      },
       { enableHighAccuracy: false, maximumAge: 10 * 60 * 1000, timeout: 8000 }
     );
   }, []);
@@ -1964,6 +2294,7 @@ function DrunkTiModal({
 }) {
   const [step, setStep] = useState(0);
   const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [completedResult, setCompletedResult] = useState<DrunkTiResult | null>(null);
   const currentQuestion = drunkTiQuestions[step];
   const progress = ((step + 1) / drunkTiQuestions.length) * 100;
 
@@ -1980,7 +2311,9 @@ function DrunkTiModal({
       return;
     }
 
-    onSave(createDrunkTiResult(nextAnswers));
+    const result = createDrunkTiResult(nextAnswers);
+    onSave(result);
+    setCompletedResult(result);
     setStep(0);
     setAnswers({});
   };
@@ -1988,7 +2321,14 @@ function DrunkTiModal({
   const close = () => {
     setStep(0);
     setAnswers({});
+    setCompletedResult(null);
     onClose();
+  };
+
+  const restart = () => {
+    setStep(0);
+    setAnswers({});
+    setCompletedResult(null);
   };
 
   return (
@@ -2001,29 +2341,65 @@ function DrunkTiModal({
         <div className="progress-track">
           <span style={{ width: `${progress}%` }} />
         </div>
-        <div className="question-block">
-          <span>STEP {step + 1} OF {drunkTiQuestions.length}</span>
-          <h2>{currentQuestion.text}</h2>
-        </div>
-        <div className="answer-list">
-          {currentQuestion.options.map((option, index) => (
-            <button key={option.value} className="answer-card" type="button" onClick={() => choose(currentQuestion.axis, option.value)}>
-              <b>{index === 0 ? "A" : "B"}</b>
-              <span>
-                <strong>{option.title}</strong>
-                <small>{option.subtitle}</small>
-              </span>
-            </button>
-          ))}
-        </div>
+        {completedResult ? (
+          <>
+            <DrunkTiResultCard result={completedResult} />
+            <div className="drunkti-result-actions">
+              <button type="button" onClick={close}>Save to Me</button>
+              <button type="button" onClick={restart}>Retake</button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="question-block">
+              <span>STEP {step + 1} OF {drunkTiQuestions.length}</span>
+              <h2>{currentQuestion.text}</h2>
+            </div>
+            <div className="answer-list">
+              {currentQuestion.options.map((option, index) => (
+                <button key={option.value} className="answer-card" type="button" onClick={() => choose(currentQuestion.axis, option.value)}>
+                  <b>{["A", "B", "C", "D"][index]}</b>
+                  <span>
+                    <strong>{option.title}</strong>
+                    <small>{option.subtitle}</small>
+                  </span>
+                </button>
+              ))}
+            </div>
+          </>
+        )}
       </section>
     </div>
   );
 }
 
-function LogCard({ sip }: { sip: CheckIn }) {
+function DrunkTiResultCard({ result, variant = "modal" }: { result: DrunkTiResult; variant?: "modal" | "profile" }) {
   return (
-    <article className="log-card">
+    <article className={`drunkti-result-card ${variant === "profile" ? "is-profile" : ""}`}>
+      <div className="drunkti-result-topline">
+        <span>ALCOHOL PERSONALITY CERTIFICATE</span>
+        <b>{result.code}</b>
+      </div>
+      <div>
+        <strong>{result.name}</strong>
+        <p>{result.tagline}</p>
+      </div>
+      <div className="profile-drunk-ti-stats">
+        {result.stats.map((stat) => (
+          <i key={stat.label}>
+            <b>{stat.label}</b>
+            <em><span style={{ "--stat-color": stat.color, "--stat-value": `${stat.value}%` } as CSSProperties} /></em>
+            <small>{stat.value}%</small>
+          </i>
+        ))}
+      </div>
+    </article>
+  );
+}
+
+function LogCard({ onOpenCard, sip }: { onOpenCard: (sip: CheckIn) => void; sip: CheckIn }) {
+  return (
+    <button className="log-card" type="button" onClick={() => onOpenCard(sip)}>
       <DrinkIcon name={sip.drinkName} type={sip.drinkCategory} />
       <div>
         <strong>{sip.drinkName}</strong>
@@ -2031,6 +2407,39 @@ function LogCard({ sip }: { sip: CheckIn }) {
         <small>{sip.drinkCategory.toUpperCase()} · {formatShortDate(sip.createdAt)}</small>
       </div>
       <b>{sip.rating?.toFixed(1) ?? "-"}</b>
+    </button>
+  );
+}
+
+function CheckInCardModal({ onClose, sip }: { onClose: () => void; sip: CheckIn }) {
+  return (
+    <div className="checkin-card-scrim" role="dialog" aria-modal="true" aria-label={`${sip.drinkName} check-in card`}>
+      <section className="checkin-card-sheet">
+        <button className="checkin-card-close" type="button" onClick={onClose} aria-label="Close check-in card">
+          <X size={15} />
+        </button>
+        <CheckInCardPreview sip={sip} />
+      </section>
+    </div>
+  );
+}
+
+function CheckInCardPreview({ sip }: { sip: CheckIn }) {
+  const hasGeneratedCard = Boolean(sip.cardImageUrl);
+  const imageSrc = resolveMediaUrl(sip.cardImageUrl ?? sip.photoUrl);
+
+  return (
+    <article className={`checkin-card-preview ${hasGeneratedCard ? "has-generated-card" : ""}`}>
+      {imageSrc ? <img src={imageSrc} alt="" /> : null}
+      {!hasGeneratedCard ? (
+        <div className="checkin-card-copy">
+          <p>BARLOG CHECK-IN</p>
+          <h2>{sip.drinkName}</h2>
+          <span>{sip.barName ?? sip.area ?? sip.city ?? "Tonight"}</span>
+          <small>{sip.vibeMumbling ?? `${sip.drinkCategory.toUpperCase()} · ${formatShortDate(sip.createdAt)}`}</small>
+          <b>{sip.rating?.toFixed(1) ?? "-"}/5</b>
+        </div>
+      ) : null}
     </article>
   );
 }
@@ -2053,124 +2462,217 @@ function getDrinkEmoji(category: string) {
 }
 
 function DrinkIcon({ name, type }: { name: string; type: string }) {
-  const normalizedName = name.toLowerCase().trim();
-  const normalizedType = type.toLowerCase().trim();
-
-  if (normalizedName.includes("negroni")) {
-    return (
-      <div className="drink-icon drink-icon-negroni">
-        <svg viewBox="0 0 100 100" aria-hidden="true">
-          <path d="M 25,20 L 75,20 L 70,85 C 70,88 67,90 64,90 L 36,90 C 33,90 30,88 30,85 Z" fill="none" stroke="#F5F1E9" strokeWidth="4" opacity="0.4" />
-          <path d="M 28,45 L 72,45 L 69,82 C 69,84 67,86 64,86 L 36,86 C 33,86 31,84 31,82 Z" fill="#991B1B" />
-          <path d="M 28,45 Q 50,49 72,45" fill="none" stroke="#EF4444" strokeWidth="2" />
-          <rect x="36" y="50" width="28" height="28" rx="4" fill="#E2E8F0" opacity="0.7" transform="rotate(12 50 64)" />
-          <path d="M 20,38 Q 35,32 45,46" fill="none" stroke="#F97316" strokeWidth="5" strokeLinecap="round" />
-          <circle cx="50" cy="58" r="3" fill="#FFF" opacity="0.6" />
-        </svg>
-      </div>
-    );
-  }
-
-  if (normalizedName.includes("old fashioned")) {
-    return (
-      <div className="drink-icon drink-icon-old-fashioned">
-        <svg viewBox="0 0 100 100" aria-hidden="true">
-          <path d="M 25,25 L 75,25 L 71,85 C 71,88 68,90 65,90 L 35,90 C 32,90 29,88 29,85 Z" fill="none" stroke="#F5F1E9" strokeWidth="4" opacity="0.4" />
-          <path d="M 28,52 L 72,52 L 69,84 C 69,86 67,87 65,87 L 35,87 C 33,87 31,86 31,84 Z" fill="#B45309" />
-          <path d="M 28,52 Q 50,55 72,52" fill="none" stroke="#D97706" strokeWidth="2" />
-          <rect x="36" y="55" width="28" height="25" rx="3" fill="#FFF" opacity="0.5" transform="rotate(-5 50 67)" />
-          <path d="M 70,30 C 65,42 75,50 68,62" fill="none" stroke="#F97316" strokeWidth="4.5" strokeLinecap="round" />
-          <circle cx="45" cy="74" r="6" fill="#991B1B" />
-        </svg>
-      </div>
-    );
-  }
-
-  if (normalizedName.includes("martini") || normalizedName.includes("gimlet") || normalizedName.includes("manhattan")) {
-    const isManhattan = normalizedName.includes("manhattan");
-    const isGimlet = normalizedName.includes("gimlet");
-    return (
-      <div className={`drink-icon ${isManhattan ? "drink-icon-manhattan" : isGimlet ? "drink-icon-gimlet" : "drink-icon-martini"}`}>
-        <svg viewBox="0 0 100 100" aria-hidden="true">
-          <line x1="50" y1="50" x2="50" y2="85" stroke="#F5F1E9" strokeWidth="4" opacity="0.5" />
-          <path d="M 32,85 L 68,85" stroke="#F5F1E9" strokeWidth="4" strokeLinecap="round" opacity="0.5" />
-          <path d="M 24,25 L 76,25 L 50,50 Z" fill={isManhattan ? "#7F1D1D" : isGimlet ? "#E2F0D9" : "#F1F5F9"} opacity="0.95" />
-          <path d="M 20,20 L 80,20 L 50,50 Z" fill="none" stroke="#F5F1E9" strokeWidth="4" opacity="0.4" />
-          <line x1="33" y1="15" x2="63" y2="45" stroke="#D1D5DB" strokeWidth="1.5" />
-          <circle cx="48" cy="30" r="5" fill={isManhattan ? "#B91C1C" : "#65A30D"} />
-          <ellipse cx="46" cy="28" rx="1.5" ry="1" fill="#FFF" opacity="0.8" />
-        </svg>
-      </div>
-    );
-  }
-
-  if (normalizedName.includes("mojito") || normalizedName.includes("tonic") || normalizedName.includes("mule") || normalizedName.includes("highball")) {
-    const isMule = normalizedName.includes("mule");
-    return (
-      <div className={`drink-icon ${isMule ? "drink-icon-mule" : "drink-icon-highball"}`}>
-        <svg viewBox="0 0 100 100" aria-hidden="true">
-          {isMule ? (
-            <>
-              <path d="M 70,35 C 85,35 85,65 70,65" fill="none" stroke="#F97316" strokeWidth="6" strokeLinecap="round" />
-              <path d="M 30,25 L 70,25 L 67,85 C 67,88 64,90 60,90 L 40,90 C 36,90 33,88 33,85 Z" fill="#C2410C" />
-              <circle cx="45" cy="22" r="10" fill="#84CC16" />
-              <path d="M 45,22 L 55,10" stroke="#10B981" strokeWidth="3" strokeLinecap="round" />
-            </>
-          ) : (
-            <>
-              <path d="M 32,20 L 68,20 L 64,88 C 64,89 63,90 62,90 L 38,90 C 37,90 36,89 36,88 Z" fill="none" stroke="#F5F1E9" strokeWidth="4" opacity="0.4" />
-              <path d="M 34,35 L 66,35 L 63,86 C 63,87 62,88 61,88 L 39,88 C 38,88 37,87 37,86 Z" fill="#F1F5F9" opacity="0.3" />
-              <circle cx="42" cy="75" r="2" fill="#FFF" opacity="0.7" />
-              <circle cx="58" cy="65" r="1.5" fill="#FFF" opacity="0.8" />
-              <circle cx="46" cy="50" r="2.5" fill="#FFF" opacity="0.5" />
-              <ellipse cx="48" cy="62" rx="10" ry="5" fill="#84CC16" transform="rotate(-20 48 62)" />
-              <line x1="58" y1="12" x2="44" y2="85" stroke="#EF4444" strokeWidth="3" strokeLinecap="round" />
-            </>
-          )}
-        </svg>
-      </div>
-    );
-  }
-
-  if (normalizedType === "wine") {
-    return (
-      <div className="drink-icon drink-icon-wine">
-        <svg viewBox="0 0 100 100" aria-hidden="true">
-          <line x1="50" y1="55" x2="50" y2="85" stroke="#F5F1E9" strokeWidth="3" opacity="0.5" />
-          <path d="M 36,85 L 64,85" stroke="#F5F1E9" strokeWidth="3" strokeLinecap="round" opacity="0.5" />
-          <path d="M 30,22 C 30,55 70,55 70,22 Z" fill="none" stroke="#F5F1E9" strokeWidth="3.5" opacity="0.4" />
-          <path d="M 31,35 C 33,52 67,52 69,35 Z" fill="#881337" />
-        </svg>
-      </div>
-    );
-  }
-
-  if (normalizedType === "beer") {
-    return (
-      <div className="drink-icon drink-icon-beer">
-        <svg viewBox="0 0 100 100" aria-hidden="true">
-          <path d="M 62,35 C 75,35 75,65 62,65" fill="none" stroke="#F5F1E9" strokeWidth="4.5" opacity="0.4" />
-          <path d="M 30,25 L 64,25 L 60,85 C 60,88 58,90 55,90 L 39,90 C 36,90 34,88 34,85 Z" fill="none" stroke="#F5F1E9" strokeWidth="4" opacity="0.4" />
-          <path d="M 32,32 L 62,32 L 59,84 C 59,86 57,87 54,87 L 40,87 C 37,87 36,86 36,84 Z" fill="#D97706" />
-          <path d="M 30,28 C 30,22 36,18 42,22 C 45,18 51,18 54,22 C 57,18 64,22 64,28 C 64,34 30,34 30,28 Z" fill="#F8FAFC" />
-          <circle cx="42" cy="55" r="2" fill="#FBBF24" />
-          <circle cx="50" cy="70" r="1.5" fill="#FBBF24" />
-        </svg>
-      </div>
-    );
-  }
+  const variant = getDrinkIconVariant(name, type);
 
   return (
-    <div className="drink-icon drink-icon-generic">
-      <svg viewBox="0 0 100 100" aria-hidden="true">
-        <path d="M 32,25 L 68,25 L 60,82 C 60,85 57,88 54,88 L 46,88 C 43,88 40,85 40,82 Z" fill="none" stroke="#F5F1E9" strokeWidth="4" opacity="0.5" />
-        <circle cx="50" cy="55" r="12" fill="#D97706" opacity="0.8" />
-        <path d="M 42,55 L 58,55" stroke="#FFF" strokeWidth="2.5" opacity="0.7" />
-        <path d="M 38,15 L 62,15 L 60,25 L 40,25 Z" fill="#E2E8F0" opacity="0.7" />
-        <rect x="46" y="8" width="8" height="7" rx="1" fill="#94A3B8" />
-      </svg>
+    <div className={`drink-icon drink-icon-${variant}`} aria-label={`${name} icon`}>
+      <DrinkIconSvg variant={variant} />
     </div>
   );
+}
+
+function DrinkIconSvg({ variant }: { variant: DrinkIconVariant }) {
+  switch (variant) {
+    case "white-russian":
+      return (
+        <svg viewBox="0 0 100 100" aria-hidden="true">
+          <RocksGlass liquid="#3B2417" liquidTop={52} />
+          <path d="M 30,43 C 38,37 45,48 52,42 C 60,35 67,42 72,39 L 71,52 C 58,58 44,51 29,56 Z" fill="#F8EFE4" />
+          <IceCube x={38} y={57} rotate={-12} />
+          <IceCube x={54} y={63} rotate={14} />
+        </svg>
+      );
+    case "black-russian":
+      return (
+        <svg viewBox="0 0 100 100" aria-hidden="true">
+          <RocksGlass liquid="#17110D" liquidTop={43} />
+          <ellipse cx="50" cy="37" rx="7" ry="4" fill="#2F1F16" transform="rotate(-16 50 37)" />
+          <path d="M 45,36 C 48,38 52,38 55,35" fill="none" stroke="#6B4A34" strokeWidth="1.5" />
+        </svg>
+      );
+    case "margarita":
+      return (
+        <svg viewBox="0 0 100 100" aria-hidden="true">
+          <path d="M 21,22 L 79,22 L 61,49 C 57,55 43,55 39,49 Z" fill="#A7F3D0" />
+          <path d="M 18,19 C 32,15 68,15 82,19" fill="none" stroke="#F8FAFC" strokeWidth="5" strokeLinecap="round" strokeDasharray="3 4" />
+          <path d="M 21,22 L 79,22 L 61,49 C 57,55 43,55 39,49 Z" fill="none" stroke="#F5F1E9" strokeWidth="4" opacity="0.45" />
+          <path d="M 50,53 L 50,84 M 33,84 L 67,84" stroke="#F5F1E9" strokeWidth="4" strokeLinecap="round" opacity="0.5" />
+          <circle cx="73" cy="38" r="10" fill="#84CC16" />
+          <circle cx="73" cy="38" r="6" fill="#ECFCCB" />
+        </svg>
+      );
+    case "cosmopolitan":
+      return (
+        <svg viewBox="0 0 100 100" aria-hidden="true">
+          <StemGlass fill="#BE185D" />
+          <path d="M 70,20 C 83,27 66,32 75,41" fill="none" stroke="#F97316" strokeWidth="4" strokeLinecap="round" />
+        </svg>
+      );
+    case "whiskey-sour":
+      return (
+        <svg viewBox="0 0 100 100" aria-hidden="true">
+          <RocksGlass liquid="#D97706" liquidTop={52} />
+          <path d="M 29,40 C 38,31 47,42 55,35 C 63,29 70,36 72,44 L 72,53 C 57,58 43,50 28,55 Z" fill="#FFF7E6" />
+          <circle cx="43" cy="43" r="2" fill="#7F1D1D" />
+          <circle cx="53" cy="41" r="1.8" fill="#7F1D1D" />
+          <path d="M 61,35 L 76,25" stroke="#9F1239" strokeWidth="2" />
+          <circle cx="75" cy="24" r="4" fill="#B91C1C" />
+        </svg>
+      );
+    case "aperol-spritz":
+      return (
+        <svg viewBox="0 0 100 100" aria-hidden="true">
+          <path d="M 30,24 C 24,52 35,75 50,75 C 65,75 76,52 70,24 Z" fill="#F97316" />
+          <path d="M 28,21 C 34,17 66,17 72,21 C 78,54 65,80 50,80 C 35,80 22,54 28,21 Z" fill="none" stroke="#F5F1E9" strokeWidth="4" opacity="0.45" />
+          <path d="M 50,79 L 50,88 M 36,88 L 64,88" stroke="#F5F1E9" strokeWidth="3.5" strokeLinecap="round" opacity="0.5" />
+          <IceCube x={40} y={45} rotate={15} />
+          <IceCube x={55} y={39} rotate={-10} />
+          <circle cx="63" cy="32" r="10" fill="#FDBA74" />
+          <circle cx="42" cy="61" r="1.7" fill="#FFF7ED" />
+          <circle cx="52" cy="51" r="1.4" fill="#FFF7ED" />
+          <circle cx="58" cy="64" r="1.2" fill="#FFF7ED" />
+        </svg>
+      );
+    case "tequila-sunrise":
+      return (
+        <svg viewBox="0 0 100 100" aria-hidden="true">
+          <HighballGlass>
+            <defs>
+              <linearGradient id="sunriseGradient" x1="0" x2="0" y1="0" y2="1">
+                <stop offset="0%" stopColor="#FDE047" />
+                <stop offset="52%" stopColor="#F97316" />
+                <stop offset="100%" stopColor="#BE123C" />
+              </linearGradient>
+            </defs>
+            <path d="M 34,28 L 66,28 L 63,86 L 37,86 Z" fill="url(#sunriseGradient)" />
+            <path d="M 65,23 L 75,12" stroke="#F8FAFC" strokeWidth="2.5" strokeLinecap="round" />
+            <circle cx="76" cy="12" r="5" fill="#B91C1C" />
+          </HighballGlass>
+        </svg>
+      );
+    case "retro-negroni":
+      return (
+        <svg viewBox="0 0 100 100" aria-hidden="true">
+          <RocksGlass liquid="#991B1B" liquidTop={45} />
+          <IceCube x={40} y={54} rotate={12} />
+          <path d="M 22,37 C 35,29 42,37 48,45" fill="none" stroke="#F97316" strokeWidth="5" strokeLinecap="round" />
+        </svg>
+      );
+    case "blue-moon":
+      return (
+        <svg viewBox="0 0 100 100" aria-hidden="true">
+          <StemGlass fill="#0EA5E9" />
+          <circle cx="68" cy="28" r="8" fill="#FB923C" />
+          <ellipse cx="58" cy="25" rx="8" ry="4" fill="#16A34A" transform="rotate(-28 58 25)" />
+        </svg>
+      );
+    case "old-fashioned":
+      return (
+        <svg viewBox="0 0 100 100" aria-hidden="true">
+          <RocksGlass liquid="#B45309" liquidTop={52} />
+          <IceCube x={39} y={55} rotate={-5} />
+          <circle cx="44" cy="76" r="6" fill="#991B1B" />
+          <path d="M 70,30 C 64,43 76,49 68,63" fill="none" stroke="#F97316" strokeWidth="4.5" strokeLinecap="round" />
+        </svg>
+      );
+    case "martini":
+      return (
+        <svg viewBox="0 0 100 100" aria-hidden="true">
+          <StemGlass fill="#F1F5F9" />
+          <path d="M 32,18 L 64,44" stroke="#D1D5DB" strokeWidth="1.8" />
+          <circle cx="48" cy="31" r="5" fill="#65A30D" />
+          <circle cx="58" cy="39" r="5" fill="#65A30D" />
+        </svg>
+      );
+    case "gimlet":
+      return (
+        <svg viewBox="0 0 100 100" aria-hidden="true">
+          <StemGlass fill="#D9F99D" />
+        </svg>
+      );
+    case "manhattan":
+      return (
+        <svg viewBox="0 0 100 100" aria-hidden="true">
+          <StemGlass fill="#7F1D1D" />
+          <circle cx="51" cy="34" r="5" fill="#B91C1C" />
+        </svg>
+      );
+    case "wine":
+      return (
+        <svg viewBox="0 0 100 100" aria-hidden="true">
+          <path d="M 50,55 L 50,85 M 36,85 L 64,85" stroke="#F5F1E9" strokeWidth="3.5" strokeLinecap="round" opacity="0.5" />
+          <path d="M 30,22 C 30,55 70,55 70,22 Z" fill="none" stroke="#F5F1E9" strokeWidth="3.5" opacity="0.45" />
+          <path d="M 31,35 C 33,52 67,52 69,35 Z" fill="#881337" />
+          <path d="M 42,34 C 48,39 56,39 64,34" fill="none" stroke="#FBCFE8" strokeWidth="2" opacity="0.6" />
+        </svg>
+      );
+    case "beer":
+      return (
+        <svg viewBox="0 0 100 100" aria-hidden="true">
+          <path d="M 62,35 C 77,35 77,66 62,66" fill="none" stroke="#F5F1E9" strokeWidth="5" opacity="0.45" />
+          <path d="M 31,27 L 65,27 L 60,86 C 60,89 58,90 55,90 L 40,90 C 37,90 35,89 35,86 Z" fill="#D97706" />
+          <path d="M 29,28 C 29,21 36,18 42,22 C 46,17 52,18 55,22 C 59,18 65,21 65,28 C 65,35 29,35 29,28 Z" fill="#F8FAFC" />
+          <path d="M 31,27 L 65,27 L 60,86 C 60,89 58,90 55,90 L 40,90 C 37,90 35,89 35,86 Z" fill="none" stroke="#F5F1E9" strokeWidth="4" opacity="0.42" />
+        </svg>
+      );
+    case "sake":
+      return (
+        <svg viewBox="0 0 100 100" aria-hidden="true">
+          <path d="M 38,25 C 38,18 62,18 62,25 L 66,78 C 66,86 34,86 34,78 Z" fill="#DCEAE5" />
+          <path d="M 38,25 C 38,18 62,18 62,25 L 66,78 C 66,86 34,86 34,78 Z" fill="none" stroke="#F5F1E9" strokeWidth="4" opacity="0.45" />
+          <path d="M 40,54 C 48,48 55,60 63,53" fill="none" stroke="#7BA99B" strokeWidth="4" strokeLinecap="round" />
+          <ellipse cx="50" cy="24" rx="12" ry="5" fill="#B7D1C8" />
+        </svg>
+      );
+    case "generic":
+    default:
+      return (
+        <svg viewBox="0 0 100 100" aria-hidden="true">
+          <defs>
+            <linearGradient id="genericDrinkGradient" x1="0" x2="1" y1="0" y2="1">
+              <stop offset="0%" stopColor="#38BDF8" />
+              <stop offset="48%" stopColor="#F97316" />
+              <stop offset="100%" stopColor="#BE185D" />
+            </linearGradient>
+          </defs>
+          <StemGlass fill="url(#genericDrinkGradient)" />
+          <path d="M 30,35 C 40,28 49,42 59,34 C 65,30 69,31 74,35" fill="none" stroke="#F8FAFC" strokeWidth="2.3" opacity="0.8" />
+        </svg>
+      );
+  }
+}
+
+function RocksGlass({ liquid, liquidTop }: { liquid: string; liquidTop: number }) {
+  return (
+    <>
+      <path d="M 25,24 L 75,24 L 70,85 C 70,88 67,90 64,90 L 36,90 C 33,90 30,88 30,85 Z" fill="none" stroke="#F5F1E9" strokeWidth="4" opacity="0.45" />
+      <path d={`M 28,${liquidTop} L 72,${liquidTop} L 69,82 C 69,85 67,87 64,87 L 36,87 C 33,87 31,85 31,82 Z`} fill={liquid} />
+      <path d={`M 28,${liquidTop} Q 50,${liquidTop + 4} 72,${liquidTop}`} fill="none" stroke="#F8FAFC" strokeWidth="2" opacity="0.35" />
+    </>
+  );
+}
+
+function StemGlass({ fill }: { fill: string }) {
+  return (
+    <>
+      <path d="M 50,50 L 50,85 M 33,85 L 67,85" stroke="#F5F1E9" strokeWidth="4" strokeLinecap="round" opacity="0.5" />
+      <path d="M 23,22 L 77,22 L 50,52 Z" fill={fill} opacity="0.96" />
+      <path d="M 19,18 L 81,18 L 50,52 Z" fill="none" stroke="#F5F1E9" strokeWidth="4" opacity="0.42" />
+    </>
+  );
+}
+
+function HighballGlass({ children }: { children: ReactNode }) {
+  return (
+    <>
+      {children}
+      <path d="M 32,20 L 68,20 L 64,88 C 64,89 63,90 62,90 L 38,90 C 37,90 36,89 36,88 Z" fill="none" stroke="#F5F1E9" strokeWidth="4" opacity="0.45" />
+    </>
+  );
+}
+
+function IceCube({ x, y, rotate }: { x: number; y: number; rotate: number }) {
+  return <rect x={x} y={y} width="18" height="18" rx="3" fill="#E2E8F0" opacity="0.62" transform={`rotate(${rotate} ${x + 9} ${y + 9})`} />;
 }
 
 function StatusCard({ label, tone = "neutral" }: { label: string; tone?: "neutral" | "error" }) {
@@ -2225,10 +2727,5 @@ function useCurrentMonth() {
 function formatShortDate(value: string) {
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-}
-
-function clampRating(value: string) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? Math.max(1, Math.min(5, parsed)) : undefined;
 }
 

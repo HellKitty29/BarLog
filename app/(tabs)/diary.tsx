@@ -10,6 +10,7 @@ import { ErrorState } from "@/components/common/ErrorState";
 import { LoadingView } from "@/components/common/LoadingView";
 import { ScrollScreen } from "@/components/layout/ScrollScreen";
 import { useDiaryCalendarQuery, useDiarySummaryQuery, useRecentSipsQuery } from "@/features/diary/diary.queries";
+import { getDrinkIconVariant, type DrinkIconVariant } from "@/features/drinks/drink-icon-variant";
 import { createDrunkTiResult, drunkTiQuestions, type DrunkTiResult } from "@/features/persona/drunkti";
 import { useDrunkTiStore } from "@/features/persona/drunkti.store";
 import { useCurrentMonth } from "@/hooks/useCurrentMonth";
@@ -417,6 +418,7 @@ function DrunkTiModal({
 }) {
   const [step, setStep] = useState(0);
   const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [completedResult, setCompletedResult] = useState<DrunkTiResult | null>(null);
   const currentQuestion = drunkTiQuestions[step];
   const progress = ((step + 1) / drunkTiQuestions.length) * 100;
 
@@ -429,18 +431,33 @@ function DrunkTiModal({
       return;
     }
 
-    onSave(createDrunkTiResult(nextAnswers));
+    const result = createDrunkTiResult(nextAnswers);
+    onSave(result);
+    setCompletedResult(result);
     setStep(0);
     setAnswers({});
   };
 
+  const close = () => {
+    setStep(0);
+    setAnswers({});
+    setCompletedResult(null);
+    onClose();
+  };
+
+  const restart = () => {
+    setStep(0);
+    setAnswers({});
+    setCompletedResult(null);
+  };
+
   return (
-    <Modal animationType="fade" onRequestClose={onClose} transparent visible={visible}>
+    <Modal animationType="fade" onRequestClose={close} transparent visible={visible}>
       <View style={styles.modalScrim}>
         <View style={styles.drunkTiModal}>
           <View style={styles.modalTopBar}>
             <Text style={styles.modalTitle}>DRINKING MBTI TEST</Text>
-            <Pressable onPress={onClose} style={styles.modalClose}>
+            <Pressable onPress={close} style={styles.modalClose}>
               <Ionicons name="close" size={17} color="#faf6ee" />
             </Pressable>
           </View>
@@ -449,25 +466,74 @@ function DrunkTiModal({
             <View style={[styles.progressFill, { width: `${progress}%` }]} />
           </View>
 
-          <View style={styles.questionBlock}>
-            <Text style={styles.questionStep}>STEP {step + 1} OF {drunkTiQuestions.length}</Text>
-            <Text style={styles.questionText}>{currentQuestion.text}</Text>
-          </View>
-
-          <View style={styles.answerList}>
-            {currentQuestion.options.map((option, index) => (
-              <Pressable key={option.value} onPress={() => choose(currentQuestion.axis, option.value)} style={styles.answerCard}>
-                <Text style={styles.answerIndex}>{index === 0 ? "A" : "B"}</Text>
-                <View style={styles.answerCopy}>
-                  <Text style={styles.answerTitle}>{option.title}</Text>
-                  <Text style={styles.answerSub}>{option.subtitle}</Text>
-                </View>
+          {completedResult ? (
+            <View style={styles.answerList}>
+              <DrunkTiResultCard result={completedResult} />
+              <Pressable onPress={close} style={styles.retakeButton}>
+                <Ionicons name="person-outline" size={14} color="#faf6ee" />
+                <Text style={styles.retakeText}>SAVE TO ME</Text>
               </Pressable>
-            ))}
-          </View>
+              <Pressable onPress={restart} style={styles.retakeButton}>
+                <Ionicons name="refresh-outline" size={14} color="#faf6ee" />
+                <Text style={styles.retakeText}>RETAKE</Text>
+              </Pressable>
+            </View>
+          ) : (
+            <>
+              <View style={styles.questionBlock}>
+                <Text style={styles.questionStep}>STEP {step + 1} OF {drunkTiQuestions.length}</Text>
+                <Text style={styles.questionText}>{currentQuestion.text}</Text>
+              </View>
+
+              <View style={styles.answerList}>
+                {currentQuestion.options.map((option, index) => (
+                  <Pressable key={option.value} onPress={() => choose(currentQuestion.axis, option.value)} style={styles.answerCard}>
+                    <Text style={styles.answerIndex}>{["A", "B", "C", "D"][index]}</Text>
+                    <View style={styles.answerCopy}>
+                      <Text style={styles.answerTitle}>{option.title}</Text>
+                      <Text style={styles.answerSub}>{option.subtitle}</Text>
+                    </View>
+                  </Pressable>
+                ))}
+              </View>
+            </>
+          )}
         </View>
       </View>
     </Modal>
+  );
+}
+
+function DrunkTiResultCard({ result }: { result: DrunkTiResult }) {
+  return (
+    <View style={styles.resultCard}>
+      <View style={styles.resultTopLine}>
+        <Text style={styles.resultEyebrow}>ALCOHOL PERSONALITY CERTIFICATE</Text>
+        <Text style={styles.resultCode}>{result.code}</Text>
+      </View>
+      <View style={styles.resultIdentity}>
+        <View style={styles.resultAvatar}>
+          <Ionicons name="planet-outline" size={27} color="#9fbf8f" />
+        </View>
+        <View style={styles.resultCopy}>
+          <Text numberOfLines={1} style={styles.resultName}>{result.name}</Text>
+          <Text style={styles.resultTagline}>{result.tagline}</Text>
+        </View>
+      </View>
+      <View style={styles.resultStatsGrid}>
+        {result.stats.map((stat) => (
+          <View key={stat.label} style={styles.resultStat}>
+            <View style={styles.resultStatLabelRow}>
+              <Text style={styles.resultStatLabel}>{stat.label}</Text>
+              <Text style={[styles.resultStatValue, { color: stat.color }]}>{stat.value}%</Text>
+            </View>
+            <View style={styles.resultTrack}>
+              <View style={[styles.resultTrackFill, { backgroundColor: stat.color, width: `${stat.value}%` }]} />
+            </View>
+          </View>
+        ))}
+      </View>
+    </View>
   );
 }
 
@@ -501,22 +567,56 @@ function StatCard({
 }
 
 function DrinkBadge({ category, drinkName }: { category: string; drinkName: string }) {
-  const normalizedName = drinkName.toLowerCase();
-  const iconName = category === "beer"
-    ? "beer-outline"
-    : category === "wine"
-      ? "wine-outline"
-      : normalizedName.includes("whisky") || category === "whisky"
-        ? "cube-outline"
-        : "wine";
+  const variant = getDrinkIconVariant(drinkName, category);
+  const iconName = getDrinkBadgeIcon(variant, category);
 
   return (
-    <View style={styles.drinkBadge}>
+    <View style={[styles.drinkBadge, { backgroundColor: drinkBadgeColors[variant] }]}>
       <Ionicons name={iconName} size={25} color="#faf6ee" />
       <View style={styles.badgeGlow} />
     </View>
   );
 }
+
+function getDrinkBadgeIcon(variant: DrinkIconVariant, category: string) {
+  if (variant === "beer") {
+    return "beer-outline";
+  }
+
+  if (variant === "wine") {
+    return "wine-outline";
+  }
+
+  if (variant === "sake") {
+    return "flask-outline";
+  }
+
+  if (variant === "old-fashioned" || variant === "black-russian" || variant === "white-russian" || category === "whisky") {
+    return "cube-outline";
+  }
+
+  return "wine";
+}
+
+const drinkBadgeColors: Record<DrinkIconVariant, string> = {
+  "white-russian": "#3d2b22",
+  "black-russian": "#1b1411",
+  margarita: "#15301f",
+  cosmopolitan: "#3d1028",
+  "whiskey-sour": "#4b2d10",
+  "aperol-spritz": "#5f260c",
+  "tequila-sunrise": "#5a201b",
+  "retro-negroni": "#4a1521",
+  "blue-moon": "#0b2545",
+  "old-fashioned": "#3f2b1f",
+  martini: "#1e293b",
+  gimlet: "#142a1d",
+  manhattan: "#3b131a",
+  beer: "#422006",
+  wine: "#270e1a",
+  sake: "#18352f",
+  generic: "#2e2825"
+};
 
 function formatSelectedDateLabel(value: string) {
   const parsed = new Date(`${value}T12:00:00`);

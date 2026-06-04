@@ -3,10 +3,14 @@ import { useMutation } from "@tanstack/react-query";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Alert, Image, Linking, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Alert, Image, Linking, Platform, Pressable, StyleSheet, Text, TextInput, View, type GestureResponderEvent, type LayoutChangeEvent } from "react-native";
+import Svg, { ClipPath, Defs, Path, Rect } from "react-native-svg";
 import { AppButton } from "@/components/common/AppButton";
 import { AppHeader } from "@/components/common/AppHeader";
 import { ScrollScreen } from "@/components/layout/ScrollScreen";
+import { barsApi } from "@/features/bars/bars.api";
+import { alternateDrinkCategoryOptions, clampCheckInRating, getRandomClassicCocktailName, weatherMoodOptions } from "@/features/sip/checkin-options";
+import { getNearestBarAutofill } from "@/features/sip/nearest-bar";
 import { sipApi } from "@/features/sip/sip.api";
 import { draftToCreateCheckInPayload } from "@/features/sip/sip.helpers";
 import { useSipDraftStore } from "@/features/sip/sip.store";
@@ -16,16 +20,10 @@ import { requestCameraPermissionState, requestMediaLibraryPermissionState } from
 import { pickImageFromLibrary, takePhotoWithCamera } from "@/services/camera/image-picker-service";
 import { prefersLibraryOverCamera } from "@/services/platform/device-platform";
 import { getCameraGuidance, getMediaLibraryGuidance } from "@/services/platform/permission-guidance";
+import { getCurrentCoordinates } from "@/services/location/location-service";
+import { createNearbyBarsParams } from "@/services/location/map-region";
 import { colors, spacing, typography } from "@/theme";
 import type { DrinkCategory, SipDraft } from "@/types/domain";
-
-const categoryOptions: { label: string; value: DrinkCategory }[] = [
-  { label: "Cocktail", value: "cocktail" },
-  { label: "Whisky", value: "whisky" },
-  { label: "Wine", value: "wine" },
-  { label: "Beer", value: "beer" },
-  { label: "Other", value: "other" }
-];
 
 const mockCardCopy = {
   title: "Tonight's Sip",
@@ -43,10 +41,11 @@ export default function SipCaptureScreen() {
   const [cardReady, setCardReady] = useState(Boolean(draft.localPhotoUri));
   const [isEditing, setIsEditing] = useState(false);
   const [drinkName, setDrinkName] = useState(draft.drinkName ?? mockCardCopy.drinkName);
-  const [barName, setBarName] = useState(draft.barName ?? mockCardCopy.barName);
+  const [barName, setBarName] = useState(draft.barName ?? "");
+  const [city, setCity] = useState<string | undefined>(draft.city);
   const [drinkCategory, setDrinkCategory] = useState<DrinkCategory>(draft.drinkCategory ?? "cocktail");
-  const [rating, setRating] = useState(draft.rating ? String(draft.rating) : "4.5");
-  const [mood, setMood] = useState(draft.moodTags[0] ?? "citrus");
+  const [rating, setRating] = useState(draft.rating ?? 4.5);
+  const [mood, setMood] = useState(draft.moodTags[0] ?? "sunny");
   const [note, setNote] = useState(draft.vibeMumbling ?? mockCardCopy.note);
   const generationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -127,7 +126,11 @@ export default function SipCaptureScreen() {
       clearTimeout(generationTimerRef.current);
     }
 
+    const randomDrinkName = getRandomClassicCocktailName();
+
     setLocalPhotoUri(uri);
+    setDrinkName(randomDrinkName);
+    setDrinkCategory("cocktail");
     setIsGenerating(true);
     setCardReady(false);
     setIsEditing(false);
@@ -136,11 +139,12 @@ export default function SipCaptureScreen() {
       uploadedPhotoUrl: undefined,
       generatedCardUri: undefined,
       uploadedCardUrl: undefined,
-      drinkName,
-      drinkCategory,
+      drinkName: randomDrinkName,
+      drinkCategory: "cocktail",
       barName,
+      city,
       moodTags: mood ? [mood] : [],
-      rating: parseRating(rating),
+      rating,
       vibeMumbling: note,
       cardStyle: "receipt",
       visibility: "tonight_only",
@@ -150,6 +154,7 @@ export default function SipCaptureScreen() {
       setIsGenerating(false);
       setCardReady(true);
     }, 850);
+    void fillNearestBarForNativeCheckIn(setBarName, setCity);
   }
 
   function publish() {
@@ -164,8 +169,9 @@ export default function SipCaptureScreen() {
       drinkName: drinkName.trim() || mockCardCopy.drinkName,
       drinkCategory,
       barName: barName.trim() || undefined,
+      city,
       moodTags: mood.trim() ? [mood.trim()] : [],
-      rating: parseRating(rating),
+      rating,
       vibeMumbling: note.trim() || undefined,
       cardStyle: "receipt" as const,
       visibility: "tonight_only" as const,
@@ -312,49 +318,51 @@ function GeneratedCardBack({
   drinkName: string;
   mood: string;
   note: string;
-  rating: string;
+  rating: number;
   setBarName: (value: string) => void;
   setDrinkCategory: (value: DrinkCategory) => void;
   setDrinkName: (value: string) => void;
   setMood: (value: string) => void;
   setNote: (value: string) => void;
-  setRating: (value: string) => void;
+  setRating: (value: number) => void;
 }) {
   return (
     <View style={styles.formCard}>
-      <Text style={styles.formTitle}>Complete the check-in</Text>
       <Field label="Drink">
         <SipInput onChangeText={setDrinkName} value={drinkName} />
       </Field>
+      <View style={styles.drinkOrRow}>
+        <Text style={styles.drinkOrText}>or</Text>
+        {alternateDrinkCategoryOptions.map((item) => {
+          const selected = drinkCategory === item.value;
+
+          return (
+            <Pressable
+              key={item.value}
+              onPress={() => setDrinkCategory(item.value)}
+              style={[styles.categoryChip, selected && styles.categoryChipSelected]}
+            >
+              <Text style={[styles.categoryChipText, selected && styles.categoryChipTextSelected]}>{item.label}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
       <Field label="Bar">
         <SipInput onChangeText={setBarName} value={barName} />
       </Field>
-      <Field label="Category">
-        <View style={styles.categoryRow}>
-          {categoryOptions.map((item) => {
-            const selected = drinkCategory === item.value;
-
-            return (
-              <Pressable
-                key={item.value}
-                onPress={() => setDrinkCategory(item.value)}
-                style={[styles.categoryChip, selected && styles.categoryChipSelected]}
-              >
-                <Text style={[styles.categoryChipText, selected && styles.categoryChipTextSelected]}>{item.label}</Text>
-              </Pressable>
-            );
-          })}
-        </View>
-      </Field>
       <View style={styles.twoColumn}>
-        <Field label="Rating">
-          <SipInput keyboardType="decimal-pad" onChangeText={setRating} value={rating} />
-        </Field>
-        <Field label="Mood">
-          <SipInput onChangeText={setMood} value={mood} />
-        </Field>
+        <View style={styles.formColumn}>
+          <Field label="Rating">
+            <HeartRating value={rating} onChange={setRating} />
+          </Field>
+        </View>
+        <View style={styles.formColumn}>
+          <Field label="Mood">
+            <WeatherMoodPicker value={mood} onChange={setMood} />
+          </Field>
+        </View>
       </View>
-      <Field label="Note">
+      <Field label="Saying something...">
         <SipInput multiline numberOfLines={3} onChangeText={setNote} style={styles.noteInput} value={note} />
       </Field>
     </View>
@@ -380,14 +388,92 @@ function SipInput(props: React.ComponentProps<typeof TextInput>) {
   );
 }
 
-function parseRating(value: string) {
-  const parsed = Number(value);
+function HeartRating({ onChange, value }: { onChange: (value: number) => void; value: number }) {
+  const [width, setWidth] = useState(1);
+  const updateFromEvent = (event: GestureResponderEvent) => {
+    const x = event.nativeEvent.locationX;
+    onChange(clampCheckInRating((x / width) * 5));
+  };
 
-  if (!Number.isFinite(parsed)) {
-    return undefined;
+  return (
+    <View
+      onLayout={(event: LayoutChangeEvent) => setWidth(Math.max(1, event.nativeEvent.layout.width))}
+      onStartShouldSetResponder={() => true}
+      onMoveShouldSetResponder={() => true}
+      onResponderGrant={updateFromEvent}
+      onResponderMove={updateFromEvent}
+      style={styles.heartRating}
+    >
+      <View pointerEvents="none" style={styles.heartRatingHeart}>
+        <Svg height="48" viewBox="0 0 100 92" width="54">
+          <Defs>
+            <ClipPath id="heartClip">
+              <Path d="M50 84S8 59 8 30C8 14 19 6 31 6c8 0 15 4 19 11C54 10 61 6 69 6c12 0 23 8 23 24 0 29-42 54-42 54Z" />
+            </ClipPath>
+          </Defs>
+          <Path
+            d="M50 84S8 59 8 30C8 14 19 6 31 6c8 0 15 4 19 11C54 10 61 6 69 6c12 0 23 8 23 24 0 29-42 54-42 54Z"
+            fill="rgba(255,255,255,0.12)"
+            stroke="#ffffff"
+            strokeWidth="4"
+          />
+          <Rect clipPath="url(#heartClip)" fill="#964b67" height="92" width={(value / 5) * 100} x="0" y="0" />
+          <Path
+            d="M50 84S8 59 8 30C8 14 19 6 31 6c8 0 15 4 19 11C54 10 61 6 69 6c12 0 23 8 23 24 0 29-42 54-42 54Z"
+            fill="none"
+            stroke="#ffffff"
+            strokeWidth="4"
+          />
+        </Svg>
+      </View>
+      <Text style={styles.heartRatingMeta}>{value.toFixed(1)}/5</Text>
+    </View>
+  );
+}
+
+function WeatherMoodPicker({ onChange, value }: { onChange: (value: string) => void; value: string }) {
+  return (
+    <View style={styles.weatherMoodGrid}>
+      {weatherMoodOptions.map((option) => {
+        const selected = value === option.value;
+
+        return (
+          <Pressable
+            key={option.value}
+            onPress={() => onChange(option.value)}
+            style={[styles.weatherMoodButton, selected && styles.weatherMoodButtonActive]}
+          >
+            <Text style={styles.weatherMoodIcon}>{option.icon}</Text>
+            <Text style={[styles.weatherMoodLabel, selected && styles.weatherMoodLabelActive]}>{option.label}</Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+async function fillNearestBarForNativeCheckIn(
+  setBarName: (value: string) => void,
+  setCity: (value: string | undefined) => void
+) {
+  try {
+    const coords = await getCurrentCoordinates();
+    const params = createNearbyBarsParams(coords);
+
+    if (!params) {
+      return;
+    }
+
+    const nearby = await barsApi.getNearby(params);
+    const autofill = getNearestBarAutofill(nearby.items, coords);
+
+    if (autofill) {
+      setBarName(autofill.barName);
+      setCity(autofill.city);
+    }
+  } catch {
+    // Location autofill is opportunistic; manual Bar entry remains available.
   }
-
-  return Math.max(1, Math.min(5, parsed));
 }
 
 const styles = StyleSheet.create({
@@ -548,21 +634,15 @@ const styles = StyleSheet.create({
     borderColor: "rgba(139, 30, 25, 0.72)",
     borderRadius: 28,
     borderWidth: 1,
-    gap: 14,
-    padding: 18
-  },
-  formTitle: {
-    color: "#faf6ee",
-    fontSize: 22,
-    fontWeight: "900",
-    lineHeight: 28
+    gap: 8,
+    padding: 13
   },
   field: {
-    gap: 7
+    gap: 4
   },
   fieldLabel: {
     color: "#c68334",
-    fontSize: 11,
+    fontSize: 9,
     fontWeight: "900",
     letterSpacing: 0.8,
     textTransform: "uppercase"
@@ -573,28 +653,94 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     borderWidth: 1,
     color: "#faf6ee",
-    fontSize: 15,
+    fontSize: 12,
     fontWeight: "700",
-    minHeight: 48,
-    paddingHorizontal: 13,
-    paddingVertical: 10
+    minHeight: 38,
+    paddingHorizontal: 10,
+    paddingVertical: 7
   },
-  noteInput: {
-    minHeight: 86,
-    textAlignVertical: "top"
+  heartRating: {
+    alignItems: "center",
+    backgroundColor: "#0d0504",
+    borderColor: "rgba(74, 23, 21, 0.9)",
+    borderRadius: 14,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 10,
+    height: 68,
+    justifyContent: "center",
+    overflow: "visible",
+    position: "relative",
+    width: "100%"
   },
-  categoryRow: {
+  heartRatingHeart: {
+    height: 48,
+    width: 54
+  },
+  heartRatingMeta: {
+    color: "#faf6ee",
+    fontSize: 14,
+    fontWeight: "900",
+    minWidth: 42,
+    textAlign: "left"
+  },
+  weatherMoodGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8
+    gap: 5
+  },
+  weatherMoodButton: {
+    alignItems: "center",
+    backgroundColor: "#0d0504",
+    borderColor: "rgba(74, 23, 21, 0.9)",
+    borderRadius: 14,
+    borderWidth: 1,
+    minHeight: 44,
+    minWidth: 48,
+    paddingHorizontal: 5,
+    paddingVertical: 4
+  },
+  weatherMoodButtonActive: {
+    backgroundColor: "#2b0e0d",
+    borderColor: "#e0443d"
+  },
+  weatherMoodIcon: {
+    color: "#faf6ee",
+    fontSize: 18,
+    lineHeight: 22
+  },
+  weatherMoodLabel: {
+    color: "#a8988c",
+    fontSize: 8,
+    fontWeight: "900"
+  },
+  weatherMoodLabelActive: {
+    color: "#fff4ec"
+  },
+  noteInput: {
+    minHeight: 58,
+    textAlignVertical: "top"
+  },
+  drinkOrRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 7
+  },
+  drinkOrText: {
+    color: "#c68334",
+    fontSize: 11,
+    fontWeight: "900",
+    textTransform: "uppercase"
   },
   categoryChip: {
     backgroundColor: "#1b0908",
     borderColor: "rgba(74, 23, 21, 0.9)",
     borderRadius: 999,
     borderWidth: 1,
-    paddingHorizontal: 13,
-    paddingVertical: 9
+    minHeight: 30,
+    paddingHorizontal: 10,
+    paddingVertical: 5
   },
   categoryChipSelected: {
     backgroundColor: "#bd2b25",
@@ -602,7 +748,7 @@ const styles = StyleSheet.create({
   },
   categoryChipText: {
     color: "#a8988c",
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "900"
   },
   categoryChipTextSelected: {
@@ -611,6 +757,10 @@ const styles = StyleSheet.create({
   twoColumn: {
     flexDirection: "row",
     gap: spacing.md
+  },
+  formColumn: {
+    flex: 1,
+    minWidth: 0
   },
   footerActions: {
     gap: spacing.sm

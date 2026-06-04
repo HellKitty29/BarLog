@@ -95,10 +95,12 @@ export type GalleryPost = {
   userId: string;
   authorName: string;
   imageUrl: string;
+  cardImageUrl?: string;
   caption?: string;
   city?: string;
   barName?: string;
   likedCount: number;
+  rating?: number;
   createdAt: string;
 };
 
