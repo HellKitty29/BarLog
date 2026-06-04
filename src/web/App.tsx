@@ -98,6 +98,7 @@ type BarAdSlide = {
   cta: string;
   imageUrl?: string;
   isBoozerMap?: boolean;
+  query?: string;
 };
 
 const barAdSlides: BarAdSlide[] = [
@@ -115,6 +116,7 @@ const barAdSlides: BarAdSlide[] = [
     kicker: "FRI 9PM · COCKTAIL BAR",
     copy: "Guest bartenders, citrus highballs, and two rounds made for the first table.",
     cta: "Save event",
+    query: "cocktail bar guest shift nearby",
     imageUrl: "https://images.pexels.com/photos/2209519/pexels-photo-2209519.jpeg?auto=compress&cs=tinysrgb&w=900"
   },
   {
@@ -123,6 +125,7 @@ const barAdSlides: BarAdSlide[] = [
     kicker: "SAT 10PM · LISTENING BAR",
     copy: "Classic aperitivo drinks with a late-night vinyl set and a low-lit booth list.",
     cta: "View lineup",
+    query: "listening bar negroni vinyl nearby",
     imageUrl: "https://images.pexels.com/photos/1850595/pexels-photo-1850595.jpeg?auto=compress&cs=tinysrgb&w=900"
   }
 ];
@@ -737,6 +740,10 @@ function DiscoverScreen() {
           <BarAdCarousel
             activeIndex={activeAdIndex}
             onChange={setActiveAdIndex}
+            onApplyBarPrompt={(query) => {
+              setBarQuestionDraft(query);
+              setBarQuestion(query);
+            }}
             onOpenBoozerMap={() => setBoozerMapOpen(true)}
             slides={barAdSlides}
           />
@@ -2004,11 +2011,13 @@ function formatConversationTime(value?: string) {
 function BarAdCarousel({
   activeIndex,
   onChange,
+  onApplyBarPrompt,
   onOpenBoozerMap,
   slides
 }: {
   activeIndex: number;
   onChange: (index: number) => void;
+  onApplyBarPrompt: (query: string) => void;
   onOpenBoozerMap: () => void;
   slides: BarAdSlide[];
 }) {
@@ -2088,9 +2097,25 @@ function BarAdCarousel({
           <strong>{activeSlide.title}</strong>
           <p>{activeSlide.copy}</p>
           {activeSlide.isBoozerMap ? (
-            <button type="button" onClick={onOpenBoozerMap}>{activeSlide.cta}</button>
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                onOpenBoozerMap();
+              }}
+            >
+              {activeSlide.cta}
+            </button>
           ) : (
-            <button type="button">{activeSlide.cta}</button>
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                onApplyBarPrompt(activeSlide.query ?? activeSlide.title);
+              }}
+            >
+              {activeSlide.cta}
+            </button>
           )}
         </div>
       </article>

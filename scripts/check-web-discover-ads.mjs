@@ -9,6 +9,10 @@ const requiredAppMarkers = [
   "const barAdSlides",
   "function BarAdCarousel",
   "function BoozerMapModal",
+  "onApplyBarPrompt={(query) => {",
+  "query: \"cocktail bar guest shift nearby\"",
+  "query: \"listening bar negroni vinyl nearby\"",
+  "event.stopPropagation();",
   "onOpenBoozerMap={() => setBoozerMapOpen(true)}",
   "className={`boozer-map-point"
 ];
@@ -27,6 +31,8 @@ const requiredStyleMarkers = [
   ".bar-ad-carousel",
   ".bar-ad-slide.is-boozer-map",
   "animation: booze-map-glow",
+  "pointer-events: none;",
+  "touch-action: manipulation;",
   ".boozer-map-modal",
   ".feed-card {",
   "grid-template-columns: 1fr;",

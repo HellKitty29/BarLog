@@ -414,14 +414,17 @@ button {
 .primary-button,
 .secondary-button,
 .permission-button {
+  appearance: none;
   align-items: center;
   border: 0;
   border-radius: 16px;
+  cursor: pointer;
   display: inline-flex;
   gap: 8px;
   justify-content: center;
   min-height: 50px;
   padding: 0 16px;
+  touch-action: manipulation;
   width: 100%;
   font-size: 13px;
   font-weight: 900;
@@ -1577,6 +1580,7 @@ button {
   background: linear-gradient(180deg, transparent 34%, rgba(5, 2, 2, 0.82));
   content: "";
   inset: 0;
+  pointer-events: none;
   position: absolute;
 }
 
@@ -1612,22 +1616,26 @@ button {
 }
 
 .bar-ad-copy button {
+  appearance: none;
   align-items: center;
   background: #faf6ee;
   border: 0;
   border-radius: 999px;
   color: #150605;
+  cursor: pointer;
   display: inline-flex;
   font-size: 11px;
   font-weight: 900;
   justify-content: center;
   min-height: 30px;
   padding: 0 11px;
+  touch-action: manipulation;
   width: fit-content;
 }
 
 .bar-ad-map {
   inset: 0;
+  pointer-events: none;
   position: absolute;
   z-index: 1;
 }
@@ -1744,17 +1752,20 @@ button {
 }
 
 .bar-question-search button {
+  appearance: none;
   align-items: center;
   background: rgba(165, 33, 29, 0.88);
   border: 0;
   border-radius: 14px;
   color: #fff4ec;
+  cursor: pointer;
   display: inline-flex;
   justify-content: center;
   min-height: 46px;
   padding: 0 14px;
   font-size: 11px;
   font-weight: 800;
+  touch-action: manipulation;
 }
 
 .bar-question-search > div button {
@@ -1826,11 +1837,14 @@ button {
 }
 
 .bar-card {
+  appearance: none;
   align-items: center;
+  cursor: pointer;
   display: grid;
   gap: 12px;
   grid-template-columns: 36px minmax(0, 1fr) 20px;
   text-align: left;
+  touch-action: manipulation;
   width: 100%;
 }
 
