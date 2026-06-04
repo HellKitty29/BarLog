@@ -1016,20 +1016,20 @@ function SipScreen({ onPublished }: { onPublished: () => void }) {
         </section>
       ) : (
         <>
-          <button className="generated-card" type="button" onClick={() => setFlipped((current) => !current)}>
-            {!flipped ? (
-              <>
-                <img src={photo.url} alt="Captured drink" />
-                <div className="card-copy">
-                  <p>MOCK GENERATED CARD</p>
-                  <h2>{drinkName}</h2>
-                  <span>{barName || "Finding nearest bar..."}</span>
-                  <small>{note}</small>
-                </div>
-                <div className="flip-hint"><RefreshCw size={13} /> TAP TO FLIP</div>
-              </>
-            ) : (
-              <div className="card-form" onClick={(event) => event.stopPropagation()}>
+          {!flipped ? (
+            <button className="generated-card" type="button" onClick={() => setFlipped(true)}>
+              <img src={photo.url} alt="Captured drink" />
+              <div className="card-copy">
+                <p>MOCK GENERATED CARD</p>
+                <h2>{drinkName}</h2>
+                <span>{barName || "Finding nearest bar..."}</span>
+                <small>{note}</small>
+              </div>
+              <div className="flip-hint"><RefreshCw size={13} /> TAP TO FLIP</div>
+            </button>
+          ) : (
+            <div className="generated-card">
+              <div className="card-form">
                 <Field label="Drink"><input value={drinkName} onChange={(event) => setDrinkName(event.target.value)} /></Field>
                 <div className="drink-or-row">
                   {alternateDrinkCategoryOptions.map((item) => (
@@ -1050,8 +1050,8 @@ function SipScreen({ onPublished }: { onPublished: () => void }) {
                 </div>
                 <Field label="Saying something..."><textarea value={note} onChange={(event) => setNote(event.target.value)} /></Field>
               </div>
-            )}
-          </button>
+            </div>
+          )}
           {publish.isError ? <StatusCard tone="error" label={publish.error.message} /> : null}
           <div className="action-grid vertical">
             <button className="secondary-button" type="button" onClick={() => setFlipped((current) => !current)}>

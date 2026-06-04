@@ -13,7 +13,8 @@ const requiredWebMarkers = [
   "<HeartRating value={rating}",
   "<WeatherMoodPicker value={mood}",
   "className=\"drink-or-row\"",
-  "Saying something..."
+  "Saying something...",
+  "<div className=\"generated-card\">"
 ];
 
 const requiredNativeMarkers = [
@@ -65,6 +66,10 @@ if (webApp.includes("<h2>Complete the check-in</h2>") || nativeCapture.includes(
 
 if (webApp.includes("drinkCategories.map") || nativeCapture.includes("categoryOptions.map")) {
   throw new Error("Sip check-in form check failed: category choices should be the compact whisky/wine/beer/other row.");
+}
+
+if (webApp.includes("<button className=\"generated-card\" type=\"button\" onClick={() => setFlipped((current) => !current)}>")) {
+  throw new Error("Sip check-in form check failed: generated card editor should not be wrapped in a flip button.");
 }
 
 console.log("Sip check-in form check passed: nearest bar autofill, heart rating, weather mood, and note label are wired.");
