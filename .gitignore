@@ -5,7 +5,11 @@ web-build/
 
 .env
 .env.local
+.env.production
 .env.*.local
+!.env.example
+!.env.production.example
+!.env.*.example
 
 npm-debug.log*
 yarn-debug.log*
@@ -15,3 +19,30 @@ pnpm-debug.log*
 *.tsbuildinfo
 .DS_Store
 Thumbs.db
+
+# ── Backend (backend/) ──
+backend/target/
+backend/build/
+backend/out/
+backend/logs/
+backend/uploads/
+backend/.idea/
+backend/.vscode/
+backend/config/*.env
+backend/**/dev.env
+backend/**/test.env
+backend/**/prod.env
+backend/**/staging.env
+backend/secrets/
+backend/**/*.pem
+backend/**/*.key
+backend/**/*.jks
+backend/**/*.dump
+backend/**/pgdata/
+backend/**/application-local.yml
+backend/COMMAND_LOG.md
+backend/docs/SERVER_DEV_STATUS.md
+backend/docs/SERVER_DEV_STATUS.local.md
+backend/docs/GIT_PUSH_GUIDE.md
+backend/docs/FRONTEND_COMPAT_TEST_PLAN.md
+backend/docs/DEPLOYMENT_STEP_BY_STEP.md

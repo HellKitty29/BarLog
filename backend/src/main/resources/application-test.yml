@@ -1,0 +1,36 @@
+# 测试 / 预发布（staging）
+server:
+  port: ${SERVER_PORT:8090}
+  forward-headers-strategy: framework
+
+spring:
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/alcohol_test?currentSchema=public}
+
+alcohol:
+  upload-dir: ${UPLOAD_DIR:/var/lib/alcohol-api-test/uploads}
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:https://app-test.barlog.app}
+  compat:
+    allow-anonymous: false
+  security:
+    rate-limit:
+      # 测试/UAT：同 IP 可多次注册；仍保留基本防刷
+      max-requests-per-minute-per-ip: 60
+      max-registrations-per-ip-per-hour: 30
+      max-failed-logins-per-ip: 20
+  auth:
+    sms:
+      provider: ${SMS_PROVIDER:mock}
+    email:
+      provider: ${EMAIL_PROVIDER:mock}
+
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true
+
+logging:
+  level:
+    com.alcohol: info

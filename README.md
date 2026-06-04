@@ -2,6 +2,13 @@
 
 ### All alcoholists welcome to your Hole! Just Dig your private obssesion here, meet someone with your burning ethanol heart.
 
+Monorepo layout:
+
+| Path | Description |
+|------|-------------|
+| `app/`, `src/` | Expo / PWA frontend (Vite web build) |
+| `backend/` | Spring Boot API (`BarLog-API` source) |
+
 Expo Router + React Native + TypeScript scaffold for BarLog.
 
 This project is backend-first. Screens call feature APIs through `src/services/api/client.ts`; set the backend URL in `.env`:
@@ -31,6 +38,17 @@ Run it with:
 ```bash
 npm run mock:backend
 ```
+
+## Backend API (`backend/`)
+
+Spring Boot 3 + PostgreSQL. See [backend/README.md](backend/README.md).
+
+```bash
+cd backend
+mvn spring-boot:run
+```
+
+Secrets: copy `backend/config/env.*.example` locally; **never commit** real `.env`, `dev.env`, or API keys (see `backend/.gitignore`).
 
 Demo login:
 
