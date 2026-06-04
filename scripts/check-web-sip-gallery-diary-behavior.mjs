@@ -23,6 +23,8 @@ if (app.includes("<span>or</span>")) {
 
 assertIncludes(app, "createGeneratedCardBlob", "generated check-in card export");
 assertIncludes(app, "uploadApi.uploadCardImage", "card image upload for published check-ins");
+assertIncludes(app, "await galleryApi.createPost({", "published check-ins also create gallery posts");
+assertIncludes(app, "rating: draft.rating", "gallery post publish carries check-in rating");
 
 const cardIndex = app.indexOf("post.cardImageUrl");
 const photoIndex = app.indexOf("post.photoUrl");
@@ -38,6 +40,9 @@ assertIncludes(app, "feed-card-rating", "gallery numeric rating display");
 assertIncludes(app, "expandedGalleryCards", "gallery in-place expanded card state");
 assertIncludes(app, "toggleExpandedGalleryCard", "gallery image click toggles full card");
 assertIncludes(app, "readCommunityPostRating", "gallery rating reads nested backend fields");
+assertIncludes(app, "normalizeCommunityPostRatingValue", "gallery rating normalizer handles string values");
+assertIncludes(app, "overallRating", "gallery rating reads additional backend rating fields");
+assertIncludes(app, "Object.entries(post as Record<string, unknown>)", "gallery rating scans nested backend objects");
 assertIncludes(app, 'className={`feed-card-photo ${hasCardImage ? "is-card" : ""}`}', "gallery card image class");
 assertIncludes(app, 'className={`feed-card-media ${isExpanded ? "is-expanded" : ""}`}', "gallery media expands in place");
 assertIncludes(styles, ".feed-card-photo.is-card", "gallery card image contained style");

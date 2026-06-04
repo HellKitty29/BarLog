@@ -891,7 +891,7 @@ function SipScreen({ onPublished }: { onPublished: () => void }) {
         visibility: "tonight_only",
         socialStatus: "not_social"
       };
-      return sipApi.createCheckIn({
+      const createdCheckIn = await sipApi.createCheckIn({
         photoUrl: draft.uploadedPhotoUrl!,
         cardImageUrl: draft.uploadedCardUrl,
         drinkName: draft.drinkName!,
@@ -905,6 +905,17 @@ function SipScreen({ onPublished }: { onPublished: () => void }) {
         visibility: draft.visibility,
         socialStatus: draft.socialStatus
       });
+
+      await galleryApi.createPost({
+        imageUrl: draft.uploadedPhotoUrl!,
+        cardImageUrl: draft.uploadedCardUrl,
+        caption: draft.vibeMumbling,
+        city: draft.city,
+        barName: draft.barName,
+        rating: draft.rating
+      });
+
+      return createdCheckIn;
     },
     onSuccess: onPublished
   });
@@ -1480,7 +1491,9 @@ type GalleryAuthorPost = CommunityImagePost & {
 type CommunityImagePost = {
   cardImageUrl?: string;
   checkIn?: CommunityImagePost;
+  checkin?: CommunityImagePost;
   checkInPhotoUrl?: string;
+  data?: CommunityImagePost;
   generatedCardUri?: string;
   imageUrl?: string;
   images?: string[];
@@ -1488,16 +1501,20 @@ type CommunityImagePost = {
   likedByCurrentUser?: boolean;
   mediaUrl?: string;
   metadata?: CommunityImagePost;
+  post?: CommunityImagePost;
   photo?: string;
   photoUrl?: string;
   photos?: string[];
-  score?: number;
-  checkInRating?: number;
-  checkinRating?: number;
-  drinkRating?: number;
-  rating?: number;
+  score?: number | string;
+  checkInRating?: number | string;
+  checkinRating?: number | string;
+  drinkRating?: number | string;
+  overallRating?: number | string;
+  rating?: number | string;
   sip?: CommunityImagePost;
+  sipCard?: CommunityImagePost;
   thumbnailUrl?: string;
+  userPost?: CommunityImagePost;
   uploadedPhotoUrl?: string;
 };
 
@@ -1527,18 +1544,88 @@ function getCommunityPostRating(post: CommunityImagePost): string {
   return typeof rating === "number" ? `${rating.toFixed(1)}/5` : "-/5";
 }
 
-function readCommunityPostRating(post: CommunityImagePost): number | undefined {
-  const direct = [post.rating, post.checkInRating, post.checkinRating, post.drinkRating, post.score]
+function normalizeCommunityPostRatingValue(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    const match = value.match(/\d+(?:\.\d+)?/);
+    if (!match) {
+      return undefined;
+    }
+
+    const parsed = Number.parseFloat(match[0]);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+
+  return undefined;
+}
+
+function readCommunityPostRating(post: CommunityImagePost, seen = new WeakSet<object>()): number | undefined {
+  if (seen.has(post)) {
+    return undefined;
+  }
+
+  seen.add(post);
+
+  const direct = [
+    post.rating,
+    post.checkInRating,
+    post.checkinRating,
+    post.drinkRating,
+    post.overallRating,
+    post.score
+  ]
+    .map((value) => normalizeCommunityPostRatingValue(value))
     .find((value) => typeof value === "number");
 
   if (typeof direct === "number") {
     return direct;
   }
 
-  return post.checkIn ? readCommunityPostRating(post.checkIn)
-    : post.sip ? readCommunityPostRating(post.sip)
-    : post.metadata ? readCommunityPostRating(post.metadata)
-    : undefined;
+  for (const [key, value] of Object.entries(post as Record<string, unknown>)) {
+    if (!/(rating|score)/i.test(key)) {
+      continue;
+    }
+
+    const normalized = normalizeCommunityPostRatingValue(value);
+    if (typeof normalized === "number") {
+      return normalized;
+    }
+  }
+
+  for (const value of Object.values(post as Record<string, unknown>)) {
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        if (item && typeof item === "object") {
+          const nestedRating = readCommunityPostRating(item as CommunityImagePost, seen);
+          if (typeof nestedRating === "number") {
+            return nestedRating;
+          }
+        }
+      }
+      continue;
+    }
+
+    if (value && typeof value === "object") {
+      const nestedRating = readCommunityPostRating(value as CommunityImagePost, seen);
+      if (typeof nestedRating === "number") {
+        return nestedRating;
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function getClinkChatShellHeight(): number {
+  if (typeof window === "undefined") {
+    return 500;
+  }
+
+  const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
+  return Math.min(500, Math.max(300, viewportHeight - 360));
 }
 
 function MatchPanel({
@@ -1747,6 +1834,7 @@ function ChatPanel({
   const visibleConversations = (conversations.data?.items ?? []).slice(0, 3);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [activeConversationFallback, setActiveConversationFallback] = useState<PendingClinkConversation | null>(null);
+  const [lockedChatShellHeight, setLockedChatShellHeight] = useState<number | null>(null);
   const [messageDraft, setMessageDraft] = useState("");
   const activeConversation =
     allConversations.find((conversation) => conversation.id === activeConversationId) ??
@@ -1767,10 +1855,18 @@ function ChatPanel({
       return;
     }
 
+    setLockedChatShellHeight(getClinkChatShellHeight());
     setActiveConversationId(initialConversationId);
     setActiveConversationFallback(initialConversationFallback);
     onInitialConversationOpened();
   }, [initialConversationFallback, initialConversationId, onInitialConversationOpened]);
+
+  const openConversation = (conversationId: string, fallbackConversation: PendingClinkConversation | null = null) => {
+    setLockedChatShellHeight(getClinkChatShellHeight());
+    setActiveConversationId(conversationId);
+    setActiveConversationFallback(fallbackConversation);
+    setMessageDraft("");
+  };
 
   const submitMessage = () => {
     const body = messageDraft.trim();
@@ -1786,7 +1882,11 @@ function ChatPanel({
     const fallback = getConversationFallbackProfile(Math.max(0, visibleConversations.findIndex((conversation) => conversation.id === activeConversation.id)));
 
     return (
-      <section className="clink-chat-shell" aria-label={`Chat with ${name}`}>
+      <section
+        className="clink-chat-shell"
+        style={{ "--clink-chat-shell-height": lockedChatShellHeight ? `${lockedChatShellHeight}px` : undefined } as CSSProperties}
+        aria-label={`Chat with ${name}`}
+      >
         <div className="clink-chat-backline">
           <button
             className="match-chat-back"
@@ -1794,6 +1894,7 @@ function ChatPanel({
             onClick={() => {
               setActiveConversationId(null);
               setActiveConversationFallback(null);
+              setLockedChatShellHeight(null);
               setMessageDraft("");
             }}
             aria-label="Back to clinks"
@@ -1858,8 +1959,7 @@ function ChatPanel({
             key={conversation.id}
             type="button"
             onClick={() => {
-              setActiveConversationId(conversation.id);
-              setMessageDraft("");
+              openConversation(conversation.id);
             }}
           >
             <div className="match-avatar" style={{ "--avatar-color": fallback.avatarColor } as CSSProperties}>

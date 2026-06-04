@@ -18,6 +18,9 @@ const requiredAppMarkers = [
   "initialConversationFallback",
   "onInitialConversationOpened",
   "activeConversationFallback",
+  "lockedChatShellHeight",
+  "getClinkChatShellHeight",
+  "--clink-chat-shell-height",
   "onOpenClinks({",
   "function getCandidateProfile",
   "profile.drunkTi",
@@ -57,7 +60,8 @@ const requiredStyleMarkers = [
   ".clink-compose",
   ".discover-header-row",
   ".discover-header-action",
-  "height: clamp(300px, calc(100dvh - 360px), 500px)"
+  "height: clamp(300px, var(--clink-chat-shell-height, 500px), 500px)",
+  "font-size: 16px;"
 ];
 
 for (const marker of requiredStyleMarkers) {
