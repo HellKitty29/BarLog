@@ -46,31 +46,20 @@ function resolveFeedError(error: unknown) {
   if (!(error instanceof ApiError)) {
     return {
       message: error instanceof Error ? error.message : "Unable to load community feed.",
-      showLogin: false,
-      showCheckIn: false
+      showLogin: false
     };
   }
 
   if (error.code === "AUTH_REQUIRED" || error.status === 401) {
     return {
-      message: "登录后才能查看社区动态。",
-      showLogin: true,
-      showCheckIn: false
-    };
-  }
-
-  if (error.code === "COMMUNITY_CHECKIN_REQUIRED" || error.status === 403) {
-    return {
-      message: "完成今日打卡后即可解锁社区，查看大家今晚的公开动态。",
-      showLogin: false,
-      showCheckIn: true
+      message: "Log in to view the community feed.",
+      showLogin: true
     };
   }
 
   return {
     message: error.message,
-    showLogin: false,
-    showCheckIn: false
+    showLogin: false
   };
 }
 
@@ -85,19 +74,14 @@ export function GalleryFeedList({
   }
 
   if (feed.isError) {
-    const { message, showLogin, showCheckIn } = resolveFeedError(feed.error);
+    const { message, showLogin } = resolveFeedError(feed.error);
 
     return (
       <View style={styles.errorBlock}>
         <ErrorState message={message} />
         {showLogin ? (
           <Pressable onPress={() => router.push("/(auth)/login")} style={styles.actionButton}>
-            <Text style={styles.actionButtonText}>去登录</Text>
-          </Pressable>
-        ) : null}
-        {showCheckIn ? (
-          <Pressable onPress={() => router.push("/sip/capture")} style={styles.actionButton}>
-            <Text style={styles.actionButtonText}>去打卡</Text>
+            <Text style={styles.actionButtonText}>Log in</Text>
           </Pressable>
         ) : null}
       </View>
@@ -108,7 +92,7 @@ export function GalleryFeedList({
     return (
       <EmptyState
         title={emptyTitle}
-        body="社区展示大家公开或今夜可见的打卡。发布 Sip 时选择 public 或 tonight_only，即可出现在这里。"
+        body="Community shows public and tonight-only check-ins from everyone. Publish a public Sip to appear here."
       />
     );
   }
@@ -122,22 +106,22 @@ export function GalleryFeedList({
           <AppCard key={post.id}>
             <View style={styles.post}>
               {imageUrl ? <Image source={{ uri: imageUrl }} style={styles.thumbnail} /> : <View style={styles.thumbnail} />}
-            <View style={styles.body}>
-              <View style={styles.titleRow}>
-                <Text numberOfLines={1} style={styles.author}>
-                  {post.authorName}
-                </Text>
-                <View style={styles.likePill}>
-                  <Ionicons name="heart" size={11} color="#c68334" />
-                  <Text style={styles.likeText}>{post.likedCount ?? 0}</Text>
+              <View style={styles.body}>
+                <View style={styles.titleRow}>
+                  <Text numberOfLines={1} style={styles.author}>
+                    {post.authorName}
+                  </Text>
+                  <View style={styles.likePill}>
+                    <Ionicons name="heart" size={11} color="#c68334" />
+                    <Text style={styles.likeText}>{post.likedCount ?? 0}</Text>
+                  </View>
                 </View>
+                <Text numberOfLines={3} style={styles.caption}>
+                  {post.caption?.trim() || "Shared a new check-in"}
+                </Text>
               </View>
-              <Text numberOfLines={3} style={styles.caption}>
-                {post.caption?.trim() || "Shared a new check-in"}
-              </Text>
             </View>
-          </View>
-        </AppCard>
+          </AppCard>
         );
       })}
     </View>

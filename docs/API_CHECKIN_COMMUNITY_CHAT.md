@@ -1,12 +1,12 @@
 # 前端 API 速查：打卡 · 社区 · 聊天
 
-Base URL：`EXPO_PUBLIC_API_BASE_URL`（如 `http://54.251.141.226:8080`）
+Base URL：`EXPO_PUBLIC_API_BASE_URL`，例如 `http://54.251.141.226:8080`。
 
-**认证：** 除登录/注册/health 外，请求头必带 `Authorization: Bearer <accessToken>`
+**认证：** 除登录、注册、`/health` 外，请求头需携带 `Authorization: Bearer <accessToken>`。
 
 **附近酒吧响应：** `{ items: Bar[], source: "google_places"|"mock_fallback"|"google_places_error", message? }`
 
-**社区额外规则：** 须**今日任意打卡**（不限城市/酒吧）才能解锁 Feed；Feed 为全球公开动态，不区分地区/酒吧；打卡 `visibility` 须为 `public` 或 `tonight_only` 才会出现在社区。
+**社区规则：** Gallery / Community Feed 登录后即可查看，不需要用户当天先 check-in。Feed 为全球公开动态，不区分地区或酒吧；只有 `visibility` 为 `public` 或 `tonight_only` 的打卡会出现在社区。
 
 ---
 
@@ -16,7 +16,7 @@ Base URL：`EXPO_PUBLIC_API_BASE_URL`（如 `http://54.251.141.226:8080`）
 |------|------|------|
 | GET | `/api/checkins/recent` | 我的最近打卡 |
 | POST | `/api/checkins` | 创建打卡 |
-| GET | `/api/checkins/{id}` | 打卡详情（他人 private → 403） |
+| GET | `/api/checkins/{id}` | 打卡详情（他人 private -> 403） |
 | DELETE | `/api/checkins/{id}` | 删除我的打卡 |
 | GET | `/api/users/{userId}/checkins` | 我的历史（userId 须为本人） |
 | GET | `/api/bars/{barId}/checkins` | 酒吧公开打卡（无 private） |
@@ -48,14 +48,14 @@ Base URL：`EXPO_PUBLIC_API_BASE_URL`（如 `http://54.251.141.226:8080`）
 
 | 方法 | 路径 | 功能 |
 |------|------|------|
-| GET | `/api/community/eligibility` | 今日是否已解锁社区 |
-| GET | `/api/community/feed?range=24h&cursor=&limit=` | 全球帖子流（需今日打卡解锁） |
+| GET | `/api/community/eligibility` | 当前用户社区状态（不用于锁定 Feed） |
+| GET | `/api/community/feed?range=24h&cursor=&limit=` | 全球帖子流 |
 | POST | `/api/community/posts/{checkInId}/like` | 点赞/取消 |
 | GET | `/api/community/posts/{checkInId}/comments` | 评论列表 |
 | POST | `/api/community/posts/{checkInId}/comments` | 发评论 `{ "body": "..." }` |
-| POST | `/api/community/users/{userId}/wave` | 打招呼开聊 `{ "checkInId?": "..." }` → `{ conversationId }` |
+| POST | `/api/community/users/{userId}/wave` | 打招呼开聊 `{ "checkInId?": "..." }` -> `{ conversationId }` |
 
-**规则：** 须今日任意打卡解锁社区；Feed 为全球公开动态，不区分城市/酒吧；仅含 public/tonight_only 且未过期打卡。
+**规则：** Feed 登录后可直接读取；只包含 `public` / `tonight_only` 且未过期打卡。
 
 ---
 
@@ -83,7 +83,6 @@ Base URL：`EXPO_PUBLIC_API_BASE_URL`（如 `http://54.251.141.226:8080`）
 |------|------|------|
 | 401 | `AUTH_REQUIRED` | 未登录 |
 | 403 | `CHECKIN_FORBIDDEN` | 无权读他人打卡 |
-| 403 | `COMMUNITY_CHECKIN_REQUIRED` | 今日尚未打卡，社区未解锁 |
 
 ---
 
@@ -92,6 +91,6 @@ Base URL：`EXPO_PUBLIC_API_BASE_URL`（如 `http://54.251.141.226:8080`）
 | 模块 | 路径 |
 |------|------|
 | endpoints | `src/services/api/endpoints.ts` |
-| 社区 | `src/features/community/community.api.ts` |
+| 社区 | `src/features/gallery/gallery.api.ts` |
 | 聊天 | `src/features/chat/chat.api.ts` |
-| Token | `src/services/storage/token-storage.ts` |
+| 打卡 | `src/features/sip/sip.api.ts` |
