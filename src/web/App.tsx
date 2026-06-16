@@ -46,6 +46,7 @@ import { getNearestBarAutofill } from "@/features/sip/nearest-bar";
 import { sipApi } from "@/features/sip/sip.api";
 import { uploadApi } from "@/features/upload/upload.api";
 import { createImageFormData, compressImageForUpload } from "@/features/upload/upload.helpers";
+import { ProfileEditSheet } from "@/components/profile/ProfileEditSheet";
 import { getDefaultAvatarDataUri } from "@/services/media/default-avatars";
 import { resolveMediaUrl } from "@/services/media/resolve-media-url";
 import { diaryFilterOptions, filterDiaryLogs, getDiaryAnchorDate, getSelectedDiaryDay, type DiaryFilterKey } from "@/web/diary-utils";
@@ -199,6 +200,10 @@ export function App() {
           await clearTokens();
           await clearLocalSessionUser();
           setUser(null);
+        }} onUserUpdated={async (nextUser) => {
+          const savedUser = { ...nextUser, email: nextUser.email ?? "" };
+          setUser(savedUser);
+          await saveLocalSessionUser(savedUser);
         }} /> : null}
       </main>
       <nav className="tabbar" aria-label="Main navigation">
@@ -291,7 +296,7 @@ function LoginScreen({ onAuthed }: { onAuthed: (user: UserType) => void }) {
     const error = query.get("error");
 
     if (error) {
-      setMessage(error);
+      setMessage(formatAuthError(error));
       window.history.replaceState({}, "", window.location.pathname);
       return;
     }
@@ -556,6 +561,17 @@ function OnboardingIntro({ body, kicker, title }: { body: string; kicker: string
       <p>{body}</p>
     </div>
   );
+}
+
+function formatAuthError(error: string) {
+  const decoded = decodeURIComponent(error.replace(/\+/g, " "));
+  if (decoded.includes("No BarLog account linked to this Google identity")) {
+    return "This Google account is not linked yet. Try Register, or use email login first.";
+  }
+  if (decoded.toLowerCase().includes("too many")) {
+    return "Too many login attempts. Please wait a minute and try again.";
+  }
+  return decoded;
 }
 
 async function completeAuthResponse(responsePromise: Promise<Awaited<ReturnType<typeof authApi.completeGoogleAuth>>>) {
@@ -1277,8 +1293,17 @@ function getBrowserCoordinates(): Promise<Coordinates> {
   });
 }
 
-function MeScreen({ user, onLogout }: { user: UserType; onLogout: () => void }) {
+function MeScreen({
+  user,
+  onLogout,
+  onUserUpdated
+}: {
+  user: UserType;
+  onLogout: () => void;
+  onUserUpdated: (user: UserType) => void;
+}) {
   const [mode, setMode] = useState<MeMode>("profile");
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
   const drunkTiResult = useDrunkTiStore((state) => state.result);
   const onboarding = getStoredOnboardingPreferences();
   const avatarSrc = user.avatarUrl ? resolveMediaUrl(user.avatarUrl) : getDefaultAvatarDataUri(user.id || user.email || user.displayName);
@@ -1308,6 +1333,9 @@ function MeScreen({ user, onLogout }: { user: UserType; onLogout: () => void }) 
             <em>{mbtiCode}</em>
           </div>
           <p>{user.email ?? "No email returned"}</p>
+          <button className="profile-edit-button" type="button" onClick={() => setIsEditingProfile(true)}>
+            Edit name & avatar
+          </button>
           <strong>🏆 MIDNIGHT EXPLORER</strong>
           <div className="profile-chip-row">
             <i>✦ {onboarding?.gender ? formatPreferenceLabel(onboarding.gender) : "Secret"}</i>
@@ -1320,6 +1348,12 @@ function MeScreen({ user, onLogout }: { user: UserType; onLogout: () => void }) 
         </button>
         {drunkTiResult ? <DrunkTiResultCard result={drunkTiResult} variant="profile" /> : null}
       </section>
+      <ProfileEditSheet
+        open={isEditingProfile}
+        user={user}
+        onClose={() => setIsEditingProfile(false)}
+        onSaved={onUserUpdated}
+      />
     </Screen>
   );
 }

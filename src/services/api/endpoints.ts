@@ -8,6 +8,9 @@ export const endpoints = {
     me: "/api/auth/me",
     refresh: "/api/auth/refresh"
   },
+  users: {
+    me: "/api/users/me"
+  },
   uploads: {
     image: "/api/uploads/image",
     card: "/api/uploads/card"

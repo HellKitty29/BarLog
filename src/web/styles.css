@@ -3360,6 +3360,188 @@ button {
   width: 44px;
 }
 
+.profile-edit-button {
+  align-self: start;
+  background: rgba(165, 33, 29, 0.18);
+  border: 1px solid rgba(198, 131, 52, 0.28);
+  border-radius: 999px;
+  color: #f0d2a2;
+  cursor: pointer;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  margin: 4px 0 8px;
+  padding: 8px 14px;
+}
+
+.profile-edit-scrim {
+  align-items: end;
+  background: rgba(8, 3, 2, 0.72);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  position: fixed;
+  z-index: 120;
+}
+
+.profile-edit-scrim-hit {
+  background: transparent;
+  border: 0;
+  inset: 0;
+  position: absolute;
+}
+
+.profile-edit-sheet {
+  background: linear-gradient(180deg, rgba(36, 14, 12, 0.98), rgba(18, 6, 5, 0.98));
+  border: 1px solid rgba(198, 131, 52, 0.22);
+  border-radius: 24px 24px 0 0;
+  box-shadow: 0 -18px 48px rgba(0, 0, 0, 0.45);
+  display: grid;
+  gap: 16px;
+  max-width: 520px;
+  padding: 20px 20px 28px;
+  position: relative;
+  width: 100%;
+}
+
+.profile-edit-header {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.profile-edit-header h3 {
+  color: #f7efe3;
+  font-size: 18px;
+  margin: 0;
+}
+
+.profile-edit-close {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  color: #cbb9aa;
+  display: flex;
+  height: 36px;
+  justify-content: center;
+  width: 36px;
+}
+
+.profile-edit-avatar-block {
+  align-items: center;
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+}
+
+.profile-edit-avatar-block p {
+  color: #a8988c;
+  font-size: 12px;
+  margin: 0;
+}
+
+.profile-edit-avatar-button {
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  padding: 0;
+  position: relative;
+}
+
+.profile-edit-avatar {
+  border: 2px solid rgba(198, 131, 52, 0.35);
+  border-radius: 999px;
+  height: 96px;
+  object-fit: cover;
+  width: 96px;
+}
+
+.profile-edit-avatar-badge {
+  align-items: center;
+  background: rgba(165, 33, 29, 0.92);
+  border: 2px solid rgba(18, 6, 5, 0.9);
+  border-radius: 999px;
+  bottom: 0;
+  color: #fff;
+  display: flex;
+  height: 32px;
+  justify-content: center;
+  position: absolute;
+  right: -2px;
+  width: 32px;
+}
+
+.profile-edit-file-input {
+  display: none;
+}
+
+.profile-edit-field {
+  display: grid;
+  gap: 8px;
+}
+
+.profile-edit-field span {
+  color: #c68334;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.profile-edit-field input {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  color: #f7efe3;
+  font-size: 15px;
+  padding: 12px 14px;
+}
+
+.profile-edit-message {
+  color: #de913e;
+  font-size: 13px;
+  margin: 0;
+}
+
+.profile-edit-actions {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 1fr 1fr;
+}
+
+.profile-edit-cancel,
+.profile-edit-save {
+  align-items: center;
+  border-radius: 14px;
+  display: inline-flex;
+  font-size: 14px;
+  gap: 8px;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0 16px;
+}
+
+.profile-edit-cancel {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #cbb9aa;
+}
+
+.profile-edit-save {
+  background: linear-gradient(135deg, #a5211d, #7d1714);
+  border: 1px solid rgba(198, 131, 52, 0.35);
+  color: #fff7ed;
+}
+
+.spin-icon {
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .profile-drunk-ti {
   border-top: 1px solid rgba(198, 131, 52, 0.24);
   display: grid;

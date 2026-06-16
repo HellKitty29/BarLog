@@ -276,6 +276,18 @@ function createRouter(database) {
         return;
       }
 
+      if (method === "PATCH" && path === "/api/users/me") {
+        const body = await readBody(request);
+        if (body.displayName) {
+          database.users[0].displayName = body.displayName;
+        }
+        if (body.avatarUrl) {
+          database.users[0].avatarUrl = body.avatarUrl;
+        }
+        sendJson(response, 200, publicUser(database.users[0]));
+        return;
+      }
+
       if (method === "POST" && path === "/api/uploads/image") {
         sendJson(response, 200, {
           imageUrl: `https://images.barlog.local/uploads/${randomUUID()}.jpg`,
